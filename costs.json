@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "ram": 44544,
+    "flash": 479769
+  },
+  "pages": {
+    "Clock": {
+      "ram": 952,
+      "flash": 11016
+    },
+    "Stocks": {
+      "ram": 1684,
+      "flash": 7860
+    },
+    "PC Info": {
+      "ram": 492,
+      "flash": 5924
+    },
+    "Weather": {
+      "ram": 52,
+      "flash": 668
+    }
+  }
+}

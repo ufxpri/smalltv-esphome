@@ -1,0 +1,22 @@
+name: Clock
+description: Time + date with a seconds progress bar.
+author: core
+
+# ESPHome deps this page needs (merged into the build). Empty = uses only
+# what core.yaml already provides (fonts, sntp_time).
+requires: ""
+
+# Drawing code. `it` is the display buffer. Runs when this page is active.
+# A cyan accent bar (top) is already drawn by the dispatcher.
+render: |
+  auto t = id(sntp_time).now();
+  if (t.is_valid()) {
+    it.strftime(120, 104, id(font_big), Color(0xFFFFFF), TextAlign::CENTER, "%H:%M", t);
+    it.strftime(120, 156, id(font_med), Color(0xFFB000), TextAlign::CENTER, "%Y-%m-%d", t);
+    int w = (int)(t.second * (200.0f / 59.0f));
+    it.filled_rectangle(20, 198, 200, 4, Color(0x203040));
+    it.filled_rectangle(20, 198, w, 4, Color(0x00FF7F));
+    it.filled_circle(20 + w, 200, 5, Color(0x7CFFC4));
+  } else {
+    it.printf(120, 120, id(font_med), Color(0x00E5FF), TextAlign::CENTER, "syncing time...");
+  }
