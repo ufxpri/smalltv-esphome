@@ -1,0 +1,112 @@
+name: Stocks
+description: >
+  Live 5-minute candlestick chart. Type a symbol in the device web UI (`ticker`);
+  the PC bridge (client/examples/stock_bridge.py) fetches 5m candles, normalizes
+  them to pixels, and pushes them here as `chart_data`.
+author: core
+
+# ticker: browser-set, restores. price/change/chart_data: bridge-pushed, no
+# restore (updated often). chart_data is parsed ONCE per push into globals
+# (on_value) so the render never re-parses per fragment.
+requires: |
+  globals:
+    - id: ch_n
+      type: int
+      restore_value: false
+      initial_value: '0'
+    - id: ch_o
+      type: int[64]
+      restore_value: false
+    - id: ch_h
+      type: int[64]
+      restore_value: false
+    - id: ch_l
+      type: int[64]
+      restore_value: false
+    - id: ch_c
+      type: int[64]
+      restore_value: false
+
+  text:
+    - platform: template
+      name: "ticker"
+      id: ticker
+      optimistic: true
+      restore_value: true
+      mode: text
+      min_length: 0
+      max_length: 10
+      initial_value: "AAPL"
+    - platform: template
+      name: "stock_price"
+      id: stock_price
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 12
+      initial_value: "--"
+    - platform: template
+      name: "stock_change"
+      id: stock_change
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 12
+      initial_value: ""
+    - platform: template
+      name: "chart_data"
+      id: chart_data
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 255            # ESPHome caps text at 255
+      initial_value: ""
+      on_value:
+        # Compact encoding: 4 base64url chars per candle (o,h,l,c), each a
+        # level 0..63 (0 = top/high). Decode + scale to pixels ONCE per push
+        # into the globals; the render never re-parses per fragment.
+        - lambda: |-
+            auto dec = [](char ch) -> int {
+              if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+              if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+              if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+              if (ch == '-') return 62;
+              if (ch == '_') return 63;
+              return 0;
+            };
+            const std::string &s = x;
+            int n = s.size() / 4;
+            if (n > 64) n = 64;
+            const int CH = 174;
+            for (int i = 0; i < n; i++) {
+              id(ch_o)[i] = dec(s[i*4+0]) * CH / 63;
+              id(ch_h)[i] = dec(s[i*4+1]) * CH / 63;
+              id(ch_l)[i] = dec(s[i*4+2]) * CH / 63;
+              id(ch_c)[i] = dec(s[i*4+3]) * CH / 63;
+            }
+            id(ch_n) = n;
+
+# Header: ticker + price + change. Body: 5m candlesticks from the globals.
+render: |
+  it.printf(8, 6, id(font_med), Color(0x9AA7B4), TextAlign::TOP_LEFT, "%s", id(ticker).state.c_str());
+  it.printf(232, 6, id(font_med), Color(0xFFFFFF), TextAlign::TOP_RIGHT, "%s", id(stock_price).state.c_str());
+  std::string chg = id(stock_change).state;
+  Color cc = (!chg.empty() && chg[0] == '+') ? Color(0x00E36B)
+           : (!chg.empty() && chg[0] == '-') ? Color(0xFF4060) : Color(0x9AA7B4);
+  it.printf(232, 34, id(font_small), cc, TextAlign::TOP_RIGHT, "%s", chg.c_str());
+  int n = id(ch_n);
+  const int X0 = 6, Y0 = 60, CW = 228, CH = 174;   // chart box; y-offsets are 0..CH
+  if (n <= 0) {
+    it.printf(120, 140, id(font_small), Color(0x808A94), TextAlign::CENTER, "waiting for data...");
+  } else {
+    int bw = CW / n; if (bw < 2) bw = 2;
+    for (int i = 0; i < n; i++) {
+      int cx = X0 + i * bw + bw / 2;
+      bool up = id(ch_c)[i] <= id(ch_o)[i];   // smaller y = higher price
+      Color k = up ? Color(0x00E36B) : Color(0xFF4060);
+      it.line(cx, Y0 + id(ch_h)[i], cx, Y0 + id(ch_l)[i], k);   // wick
+      int a = id(ch_o)[i], b = id(ch_c)[i]; if (a > b) { int t = a; a = b; b = t; }
+      int bx = X0 + i * bw + 1, wd = (bw - 2 >= 1 ? bw - 2 : 1);
+      it.filled_rectangle(bx, Y0 + a, wd, (b - a >= 1 ? b - a : 1), k);   // body
+    }
+  }

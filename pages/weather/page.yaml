@@ -1,0 +1,12 @@
+name: Weather
+description: >
+  STUB. Wire a data source: either push from a PC bridge (like stocks) into
+  text entities, or add an on-device http_request in `requires`. Kept minimal
+  so it costs almost nothing until someone builds it out.
+author: you
+
+requires: ""
+
+render: |
+  it.printf(120, 92, id(font_med), Color(0x00E5FF), TextAlign::CENTER, "Weather");
+  it.printf(120, 132, id(font_small), Color(0x808A94), TextAlign::CENTER, "configure a data source");

@@ -18,26 +18,38 @@ rich, self-updating info display.
   backlight PWM `GPIO5` (inverted).
 - **Serial header**: left edge of board; no DTR/RTS auto-reset. UART adapter = CH340.
 
-## Repo layout
-- `smalltv-ultra.yaml` — the ESPHome config (single source of truth).
-- `secrets.yaml` — Wi-Fi/OTA/AP credentials (**git-ignored**; copy from `secrets.yaml.example`).
-- `components/st7789v/` — local patched copy of lhartmann's fractional-framebuffer
-  ST7789 driver (streams 240×240 in fragments so it fits ESP8266 RAM).
-- `RULES.md` — **the firmware dev constitution + recovery net. Read before editing.**
-- `CAPABILITIES.md` — what this hardware can/can't do and where the limits are.
-- `firmware-v1.bin` — network-only recovery image (git-ignored; rebuildable). Serial-flash to un-brick.
+## Repo layout (page-based)
+- `core.yaml` — shared base (wifi/ota/api/web/safe_mode, display plumbing, fonts,
+  backlight, wifi-gated refresh interval). No `display:` or `mode` select — those
+  are GENERATED. Don't add page-specific stuff here.
+- `pages/<id>/page.yaml` — one screen each (metadata + `requires:` deps + `render:`
+  drawing code). See `pages/PAGE_SCHEMA.md`. Current: clock, stocks, pcinfo, weather.
+- `tools/build.py` — composes selected pages + core, **checks the RAM/Flash budget**,
+  compiles, uploads. The single entry point for building.
+- `client/` — dependency-free Python lib (`smalltv`) to drive the device from a PC,
+  plus `examples/` (stock_bridge, pc_stats). REST-based; works from curl too.
+- `components/st7789v/` — local patched fractional-framebuffer ST7789 driver (INVON).
+- `costs.json` — measured per-page RAM/Flash cost (for `build.py budget`).
+- `secrets.yaml` — creds (**git-ignored**; copy from `secrets.yaml.example`).
+- `RULES.md` — **dev constitution + recovery net. Read before editing.**
+- `CAPABILITIES.md` — hardware limits. `firmware-v1.bin` — serial recovery image (git-ignored).
 
-## Build & deploy workflow
-`esphome` is not on PATH — always use `python -m esphome`.
+## Build & deploy workflow — use tools/build.py
+`esphome` is not on PATH — the tool calls `python -m esphome` for you.
 ```sh
-python -m esphome compile smalltv-ultra.yaml            # ALWAYS compile first
-python -m esphome upload  smalltv-ultra.yaml --device <device-ip>
+python tools/build.py list                        # pages + measured cost
+python tools/build.py budget clock stocks         # fast fit estimate (from costs.json)
+python tools/build.py compile clock stocks        # real compile + exact RAM/Flash
+python tools/build.py upload  clock stocks --device <device-ip>   # refuses if over RAM limit
+python tools/build.py measure <page>              # record a page's cost into costs.json
 ```
-- `esphome upload` alone does NOT recompile — it re-sends the last binary. Compile first.
+- Not every page fits at once (ESP8266 RAM). The budget check is the whole point:
+  `upload` won't flash a set that blows the RAM limit.
 - Device IP is DHCP and changes (hostname `smalltv-ultra`). Find it by sweeping the
-  subnet for `http://<ip>/text_sensor/esphome_version`, or check the router client list.
-- After deploy, watch for ~60 s: if `http://<ip>/sensor/uptime` climbs past 60 s, it's
+  subnet for `http://<ip>/text_sensor/esphome_version`, or the router client list.
+- After deploy, watch ~60 s: if `http://<ip>/sensor/uptime` climbs past 60 s it's
   stable (not in a reboot loop).
+- The generator writes `generated.build.yaml` (git-ignored). Don't edit it by hand.
 
 ## GOLDEN RULES (full detail in RULES.md — do not skip)
 1. **Never block the main loop** — no single `lambda`/`interval`/`on_*` op over ~50 ms.

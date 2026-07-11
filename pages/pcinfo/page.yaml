@@ -1,0 +1,49 @@
+name: PC Info
+description: >
+  Generic title + 3 text lines pushed from a PC over REST. Use for CPU/RAM
+  stats, notifications, now-playing, anything. See client/examples/pc_stats.py.
+author: core
+
+# The PC sets these over REST: POST /text/title/set?value=...
+# Not restored (updated frequently -> avoid flash wear).
+requires: |
+  text:
+    - platform: template
+      name: "title"
+      id: t_title
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 40
+      initial_value: "PC Info"
+    - platform: template
+      name: "line1"
+      id: t_line1
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 40
+      initial_value: ""
+    - platform: template
+      name: "line2"
+      id: t_line2
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 40
+      initial_value: ""
+    - platform: template
+      name: "line3"
+      id: t_line3
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 40
+      initial_value: ""
+
+render: |
+  it.printf(14, 14, id(font_med), Color(0xFFB000), TextAlign::TOP_LEFT, "%s", id(t_title).state.c_str());
+  it.line(14, 46, 226, 46, Color(0x2A3542));
+  it.printf(14, 60,  id(font_small), Color(0xFFFFFF), TextAlign::TOP_LEFT, "%s", id(t_line1).state.c_str());
+  it.printf(14, 96,  id(font_small), Color(0xFFFFFF), TextAlign::TOP_LEFT, "%s", id(t_line2).state.c_str());
+  it.printf(14, 132, id(font_small), Color(0xFFFFFF), TextAlign::TOP_LEFT, "%s", id(t_line3).state.c_str());
