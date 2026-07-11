@@ -1,0 +1,11 @@
+# ESPHome build + secrets
+/.esphome/
+/secrets.yaml
+
+# Python caches from local external components
+__pycache__/
+*.pyc
+
+# Compiled firmware images contain baked-in Wi-Fi/OTA credentials.
+# Keep them local; rebuild with `python -m esphome compile`.
+*.bin
