@@ -60,6 +60,13 @@ time:
     id: sntp_time
     timezone: Asia/Seoul
 
+# Health telemetry used by the generated top warning bar.
+globals:
+  - id: g_last_render      # ms the previous display fragment took to draw
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
 # ---------------- Display hardware plumbing (shared) ----------------
 spi:
   clk_pin: GPIO14
@@ -117,4 +124,5 @@ sensor:
     name: "Uptime"
   - platform: wifi_signal
     name: "WiFi Signal"
+    id: wifi_rssi
     update_interval: 30s

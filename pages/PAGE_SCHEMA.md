@@ -26,7 +26,9 @@ requires: |
       initial_value: ""
 
 # Drawing code. `it` is the display buffer (240x240). Runs while this page is
-# active. A cyan accent bar at the top (y 0..6) is already drawn for you.
+# active. The top 6px is reserved for a shared health-warning bar (normally
+# hidden; red=low memory, amber=render overload, blue=weak WiFi), so keep
+# critical content below y≈8.
 render: |
   it.printf(120, 120, id(font_med), Color(0xFFFFFF), TextAlign::CENTER,
             "%s", id(my_value).state.c_str());
