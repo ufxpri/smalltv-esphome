@@ -69,10 +69,20 @@ def resolve(sel, pages):
     return out
 
 def build_dispatch(selected):
-    L = ["it.fill(Color(0x000000));",
+    # Health warning bar (top 6px): hidden when healthy, colored on trouble.
+    #   red   = low free heap (memory pressure)
+    #   amber = slow render (previous fragment took too long -> overload)
+    #   blue  = weak WiFi (RSSI low; full disconnect freezes the screen instead)
+    L = ["uint32_t _t0 = millis();",
+         "it.fill(Color(0x000000));",
          "std::string _m = id(disp_mode).state;",
-         'if (_m == "Off") { return; }',
-         "it.filled_rectangle(0, 0, 240, 6, Color(0x00E5FF));"]
+         "Color _wc; bool _warn = true;",
+         "if (ESP.getFreeHeap() < 6000) _wc = Color(0xFF4060);",
+         "else if (id(g_last_render) > 25) _wc = Color(0xFFA000);",
+         "else if (id(wifi_rssi).state < -80.0f) _wc = Color(0x2E86FF);",
+         "else _warn = false;",
+         "if (_warn) it.filled_rectangle(0, 0, 240, 6, _wc);",
+         'if (_m == "Off") { id(g_last_render) = millis() - _t0; return; }']
     for i, pg in enumerate(selected):
         kw = "if" if i == 0 else "else if"
         L.append(f'{kw} (_m == "{pg["name"]}") {{')
@@ -81,6 +91,7 @@ def build_dispatch(selected):
     if selected:   # only valid when there's a preceding if-branch
         L.append('else { it.printf(120, 120, id(font_small), Color(0xFFA0A0), '
                  'TextAlign::CENTER, "no page: %s", _m.c_str()); }')
+    L.append("id(g_last_render) = millis() - _t0;")
     return "\n".join(L)
 
 def generate(selected):
