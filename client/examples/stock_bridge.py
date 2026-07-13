@@ -29,7 +29,7 @@ ALPH = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 def fetch_5m(symbol):
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{urllib.parse.quote(symbol)}?interval=5m&range=1d")
+           f"{urllib.parse.quote(symbol)}?interval=5m&range=1d&includePrePost=true")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=8) as r:
         res = json.load(r)["chart"]["result"][0]
@@ -41,7 +41,26 @@ def fetch_5m(symbol):
     price = meta["regularMarketPrice"]
     prev = meta.get("chartPreviousClose") or meta.get("previousClose") or price
     pct = (price - prev) / prev * 100 if prev else 0.0
-    return candles, price, pct
+    return candles, price, pct, market_session(meta)
+
+
+def market_session(meta):
+    """REGULAR / PRE / POST / CLOSED from Yahoo's currentTradingPeriod windows."""
+    ctp = meta.get("currentTradingPeriod") or {}
+    now = time.time()
+
+    def in_window(key):
+        p = ctp.get(key) or {}
+        s, e = p.get("start"), p.get("end")
+        return s is not None and e is not None and s <= now < e
+
+    if in_window("regular"):
+        return "REGULAR"
+    if in_window("pre"):
+        return "PRE"
+    if in_window("post"):
+        return "POST"
+    return "CLOSED"
 
 
 def encode(candles):
@@ -64,13 +83,14 @@ def main():
     while True:
         symbol = (tv.get_ticker() or "AAPL").strip().upper()
         try:
-            candles, price, pct = fetch_5m(symbol)
+            candles, price, pct, session = fetch_5m(symbol)
+            tv.set_text("market_state", session)
             if candles:
                 tv.set_text("chart_data", encode(candles))
                 tv.stock(price=f"{price:,.2f}", change=f"{pct:+.2f}%")
-                print(f"  {symbol:10} {price:>12,.2f}  {pct:+.2f}%  ({len(candles)} candles)")
+                print(f"  {symbol:10} {price:>12,.2f}  {pct:+.2f}%  [{session}]  ({len(candles)} candles)")
             else:
-                print(f"  {symbol:10} no candle data")
+                print(f"  {symbol:10} no candle data  [{session}]")
         except Exception as e:
             tv.stock(price="--", change="")
             print(f"  {symbol:10} error: {e}")
