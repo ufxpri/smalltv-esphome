@@ -28,10 +28,14 @@ rich, self-updating info display.
   compiles, uploads. The single entry point for building.
 - `client/` — dependency-free Python lib (`smalltv`) to drive the device from a PC,
   plus `examples/` (stock_bridge, pc_stats). REST-based; works from curl too.
+  `client/widget/` — cross-platform (Mac/Windows) tray/menu-bar app over the same
+  REST calls (page switch, brightness, live bridges, start-at-login, settings);
+  `smalltv_widget.py` is its entry point, `build/` packages it into a .exe/.app.
 - `components/st7789v/` — local patched fractional-framebuffer ST7789 driver (INVON).
 - `costs.json` — measured per-page RAM/Flash cost (for `build.py budget`).
 - `secrets.yaml` — creds (**git-ignored**; copy from `secrets.yaml.example`).
 - `RULES.md` — **dev constitution + recovery net. Read before editing.**
+- `DESIGN.md` — **visual design guide** (canvas, palette, fonts, layout, perf-aware drawing). Read before styling a page.
 - `CAPABILITIES.md` — hardware limits. `firmware-v1.bin` — serial recovery image (git-ignored).
 
 ## Build & deploy workflow — use tools/build.py
