@@ -1,0 +1,6 @@
+# Runtime deps for the SmallTV tray/menu-bar widget (smalltv_widget.py).
+# The core `smalltv` client library itself stays dependency-free; these are
+# only for the desktop widget.
+pystray>=0.19
+Pillow>=9.0
+psutil>=5.9        # PC stats bridge only

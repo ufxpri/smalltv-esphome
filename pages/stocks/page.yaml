@@ -54,6 +54,16 @@ requires: |
       max_length: 12
       initial_value: ""
     - platform: template
+      # Market session badge: REGULAR / PRE / POST / CLOSED. Pushed by the PC
+      # bridge from Yahoo's currentTradingPeriod. No restore (changes often).
+      name: "market_state"
+      id: market_state
+      optimistic: true
+      mode: text
+      min_length: 0
+      max_length: 8
+      initial_value: ""
+    - platform: template
       name: "chart_data"
       id: chart_data
       optimistic: true
@@ -94,6 +104,17 @@ render: |
   Color cc = (!chg.empty() && chg[0] == '+') ? Color(0x00E36B)
            : (!chg.empty() && chg[0] == '-') ? Color(0xFF4060) : Color(0x9AA7B4);
   it.printf(232, 34, id(font_small), cc, TextAlign::TOP_RIGHT, "%s", chg.c_str());
+  // Market-session badge (top-left, under the ticker).
+  std::string ms = id(market_state).state;
+  const char *lbl = ""; Color bg = Color(0x000000); int bw = 0;
+  if (ms == "REGULAR")     { lbl = "LIVE";   bg = Color(0x00A24B); bw = 44; }
+  else if (ms == "PRE")    { lbl = "PRE";    bg = Color(0xE59400); bw = 40; }
+  else if (ms == "POST")   { lbl = "AFTER";  bg = Color(0x3B6BE5); bw = 54; }
+  else if (ms == "CLOSED") { lbl = "CLOSED"; bg = Color(0x5A6472); bw = 62; }
+  if (bw > 0) {
+    it.filled_rectangle(8, 36, bw, 18, bg);
+    it.printf(8 + bw / 2, 45, id(font_small), Color(0xFFFFFF), TextAlign::CENTER, "%s", lbl);
+  }
   int n = id(ch_n);
   const int X0 = 6, Y0 = 60, CW = 228, CH = 174;   // chart box; y-offsets are 0..CH
   if (n <= 0) {
