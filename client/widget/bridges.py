@@ -212,7 +212,8 @@ class StockBridge(Bridge):
 
 
 class PCStatsBridge(Bridge):
-    label = "pcstats"
+    """Feeds the Worker (furnace) page: pushes CPU load 0-100 to `cpu_load`."""
+    label = "worker"
 
     def _interval(self):
         return self.m.cfg["pcstats"]["interval"]
@@ -222,12 +223,12 @@ class PCStatsBridge(Bridge):
             import psutil  # noqa: F401
         except ImportError:
             self.last_status = "psutil not installed"
-            self.m.log("[pcstats] psutil not installed — run: pip install psutil")
+            self.m.log("[worker] psutil not installed — run: pip install psutil")
             return
         if not self.m.cfg["rotation"]["enabled"]:
             try:
                 from smalltv import SmallTV
-                SmallTV(self.m.cfg["device_ip"]).set_mode("PC Info")
+                SmallTV(self.m.cfg["device_ip"]).set_mode("Worker")
             except Exception:
                 pass
         super().run()
@@ -235,15 +236,9 @@ class PCStatsBridge(Bridge):
     def tick(self, tv):
         import psutil
         cpu = psutil.cpu_percent()
-        mem = psutil.virtual_memory().percent
-        tv.lines(
-            title=self.m.cfg["pcstats"].get("title", "PC Monitor"),
-            l1=f"CPU  {cpu:4.0f} %",
-            l2=f"RAM  {mem:4.0f} %",
-            l3=time.strftime("%H:%M:%S"),
-            switch=False,
-        )
-        self.last_status = f"CPU {cpu:.0f}%  RAM {mem:.0f}%"
+        tv.set_text("cpu_load", str(int(round(cpu))))
+        self.last_status = f"CPU {cpu:.0f}%"
+        self.m.log(f"[worker] {self.last_status}")
 
 
 class SectorBridge(Bridge):

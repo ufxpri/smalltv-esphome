@@ -15,7 +15,7 @@ APP_NAME = "SmallTVWidget"
 
 DEFAULTS = {
     "device_ip": "192.168.219.112",
-    "modes": ["Clock", "Stocks", "Sectors", "PC Info", "Off"],
+    "modes": ["Clock", "Stocks", "Sectors", "Worker", "Off"],
     "brightness": 0.8,
     "start_at_login": False,
     "stock": {
@@ -25,7 +25,7 @@ DEFAULTS = {
     },
     "pcstats": {
         "title": "PC Monitor",
-        "interval": 2.0,
+        "interval": 1.0,
         "autostart": False,
     },
     "sectors": {
@@ -35,7 +35,7 @@ DEFAULTS = {
     "rotation": {
         "enabled": False,
         "interval": 10.0,
-        "pages": ["Clock", "Stocks", "Sectors", "PC Info"],
+        "pages": ["Clock", "Stocks", "Sectors", "Worker"],
     },
 }
 
