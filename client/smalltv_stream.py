@@ -155,6 +155,12 @@ def to565(img):
 # RGB565 palette for the dirty-patch debug overlay (cycles per patch)
 DBG_PALETTE = [0xF800, 0x07E0, 0x001F, 0xFFE0, 0xF81F, 0x07FF, 0xFFFF, 0xFD20]
 
+# Intra-refresh: also resend this many patches per frame in raster order, cycling
+# through the whole screen. Heals static tiles that were dropped on connect / in
+# the initial burst (they'd otherwise never be resent). ~full sweep every
+# (tiles / REFRESH_K) frames.
+REFRESH_K = 12
+
 
 class Streamer:
     def __init__(self, host, port, tw=TW, th=TH, debug=False):
@@ -162,6 +168,8 @@ class Streamer:
         self.tw, self.th = tw, th
         self.debug = debug
         self._dbg = 0
+        self.refresh_k = REFRESH_K
+        self.refresh_cursor = 0
         self.sock = None
         self.prev = None
         self.last_send = 0.0
@@ -180,35 +188,50 @@ class Streamer:
         return self.push565(to565(img))
 
     def push565(self, cur):
-        """Send changed patches. Horizontally-adjacent changed tiles in a row are
-        merged into one wider blit (fewer, more atomic panel writes) — capped at
-        the device tile buffer (1024 px)."""
-        sent = 0
-        buf = bytearray()
+        """Send changed patches (horizontally-merged into wider blits), plus a few
+        'stale' patches per frame in raster order so any tile dropped on connect /
+        in the initial burst is healed within one sweep."""
         tw, th = self.tw, self.th
         prev = self.prev
+        gw = (W + tw - 1) // tw
+        gh = (H + th - 1) // th
+
+        # decide which grid cells to send this frame
+        if prev is None:
+            send = np.ones((gh, gw), dtype=bool)                 # first frame: full paint
+        else:
+            send = np.zeros((gh, gw), dtype=bool)
+            for gy in range(gh):
+                ty, hh = gy * th, min(th, H - gy * th)
+                for gx in range(gw):
+                    tx, ww = gx * tw, min(tw, W - gx * tw)
+                    if not np.array_equal(cur[ty:ty + hh, tx:tx + ww], prev[ty:ty + hh, tx:tx + ww]):
+                        send[gy, gx] = True
+            # intra-refresh: also resend K patches in raster order, cycling
+            total = gh * gw
+            for _ in range(min(self.refresh_k, total)):
+                gy, gx = divmod(self.refresh_cursor, gw)
+                send[gy, gx] = True
+                self.refresh_cursor = (self.refresh_cursor + 1) % total
+
+        # emit: merge horizontally-adjacent send cells into one blit (<=1024 px)
+        sent = 0
+        buf = bytearray()
         max_px = 1024
-
-        def changed(ty, hh, x, w):
-            return prev is None or not np.array_equal(cur[ty:ty + hh, x:x + w], prev[ty:ty + hh, x:x + w])
-
-        for ty in range(0, H, th):
-            hh = min(th, H - ty)
-            max_run_w = max(tw, (max_px // hh))
-            x = 0
-            while x < W:
-                w = min(tw, W - x)
-                if not changed(ty, hh, x, w):
-                    x += w
+        for gy in range(gh):
+            ty, hh = gy * th, min(th, H - gy * th)
+            max_run_w = max(tw, max_px // hh)
+            gx = 0
+            while gx < gw:
+                if not send[gy, gx]:
+                    gx += 1
                     continue
-                run_x, run_w = x, w          # extend the run over adjacent changed tiles
-                x += w
-                while x < W:
-                    w2 = min(tw, W - x)
-                    if run_w + w2 > max_run_w or not changed(ty, hh, x, w2):
-                        break
-                    run_w += w2
-                    x += w2
+                run_x = gx * tw
+                run_w = min(tw, W - run_x)
+                gx += 1
+                while gx < gw and send[gy, gx] and run_w + min(tw, W - gx * tw) <= max_run_w:
+                    run_w += min(tw, W - gx * tw)
+                    gx += 1
                 rect = cur[ty:ty + hh, run_x:run_x + run_w]
                 if self.debug:
                     rect = rect.copy()
@@ -221,7 +244,7 @@ class Streamer:
         if buf:
             self._send(bytes(buf))
         elif time.time() - self.last_send > 1.5:
-            self._send(struct.pack(">HHHH", 0, 0, 0, 0))   # heartbeat
+            self._send(struct.pack(">HHHH", 0, 0, 0, 0))   # heartbeat (only if refresh_k=0)
         self.prev = cur
         return sent
 
