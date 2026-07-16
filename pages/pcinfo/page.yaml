@@ -16,6 +16,8 @@ requires: |
       min_length: 0
       max_length: 40
       initial_value: "PC Info"
+      on_value:
+        - lambda: 'id(g_dirty) = true;'
     - platform: template
       name: "line1"
       id: t_line1
@@ -24,6 +26,8 @@ requires: |
       min_length: 0
       max_length: 40
       initial_value: ""
+      on_value:
+        - lambda: 'id(g_dirty) = true;'
     - platform: template
       name: "line2"
       id: t_line2
@@ -32,6 +36,8 @@ requires: |
       min_length: 0
       max_length: 40
       initial_value: ""
+      on_value:
+        - lambda: 'id(g_dirty) = true;'
     - platform: template
       name: "line3"
       id: t_line3
@@ -40,6 +46,8 @@ requires: |
       min_length: 0
       max_length: 40
       initial_value: ""
+      on_value:
+        - lambda: 'id(g_dirty) = true;'
 
 render: |
   it.printf(14, 14, id(font_med), Color(0xFFB000), TextAlign::TOP_LEFT, "%s", id(t_title).state.c_str());

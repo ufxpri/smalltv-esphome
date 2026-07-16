@@ -82,6 +82,24 @@ def encode_rsi(rsi):
                    for r in rsi)
 
 
+# ---------------------------------------------------------------- Sectors ----
+# 11 SPDR sector ETFs + SPY. Order MUST match the labels in pages/sectors.
+SECTOR_SYMS = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+               "XLP", "XLE", "XLU", "XLRE", "XLB", "SPY"]
+
+
+def fetch_pct(symbol):
+    """Daily % change for a symbol, from the 1d chart meta (no candles needed)."""
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{urllib.parse.quote(symbol)}?interval=1d&range=1d")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        meta = json.load(r)["chart"]["result"][0]["meta"]
+    price = meta["regularMarketPrice"]
+    prev = meta.get("chartPreviousClose") or meta.get("previousClose") or price
+    return (price - prev) / prev * 100 if prev else 0.0
+
+
 def market_session(meta):
     """REGULAR / PRE / POST / CLOSED, from Yahoo's currentTradingPeriod windows
     (epoch UTC) compared against the current time."""
@@ -161,7 +179,8 @@ class StockBridge(Bridge):
         try:
             from smalltv import SmallTV
             tv = SmallTV(self.m.cfg["device_ip"])
-            tv.set_mode("Stocks")
+            if not self.m.cfg["rotation"]["enabled"]:
+                tv.set_mode("Stocks")
             want = (self.m.cfg["stock"].get("ticker") or "").strip().upper()
             if want:
                 tv.set_text("ticker", want)
@@ -202,11 +221,12 @@ class PCStatsBridge(Bridge):
             self.last_status = "psutil not installed"
             self.m.log("[pcstats] psutil not installed — run: pip install psutil")
             return
-        try:
-            from smalltv import SmallTV
-            SmallTV(self.m.cfg["device_ip"]).set_mode("PC Info")
-        except Exception:
-            pass
+        if not self.m.cfg["rotation"]["enabled"]:
+            try:
+                from smalltv import SmallTV
+                SmallTV(self.m.cfg["device_ip"]).set_mode("PC Info")
+            except Exception:
+                pass
         super().run()
 
     def tick(self, tv):
@@ -221,3 +241,30 @@ class PCStatsBridge(Bridge):
             switch=False,
         )
         self.last_status = f"CPU {cpu:.0f}%  RAM {mem:.0f}%"
+
+
+class SectorBridge(Bridge):
+    label = "sectors"
+
+    def _interval(self):
+        return self.m.cfg["sectors"]["interval"]
+
+    def run(self):
+        if not self.m.cfg["rotation"]["enabled"]:
+            try:
+                from smalltv import SmallTV
+                SmallTV(self.m.cfg["device_ip"]).set_mode("Sectors")
+            except Exception:
+                pass
+        super().run()
+
+    def tick(self, tv):
+        tenths = []
+        for sym in SECTOR_SYMS:
+            try:
+                tenths.append(str(round(fetch_pct(sym) * 10)))
+            except Exception:
+                tenths.append("0")
+        tv.set_text("heatmap_data", ",".join(tenths))
+        self.last_status = "12 sectors updated"
+        self.m.log(f"[sectors] {self.last_status}")

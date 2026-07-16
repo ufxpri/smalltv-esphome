@@ -66,6 +66,17 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: '0'
+  # Dirty-flag rendering: only redraw the screen when something actually changed
+  # (data push or page switch). The ST7789 keeps the last image in its own GRAM,
+  # so between changes the core stays idle instead of re-rasterizing 30x/second.
+  - id: g_dirty
+    type: bool
+    restore_value: false
+    initial_value: 'true'
+  - id: g_last_draw        # millis() of the last real redraw (safety fallback)
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
 
 # ---------------- Display hardware plumbing (shared) ----------------
 spi:
@@ -102,6 +113,8 @@ font:
 
 # Refresh the (generated) display ONLY while WiFi is connected, so a heavy
 # page can never starve the single core and lock the radio out. Self-healing.
+# And only when needed: the active page is time-driven (Clock), something set
+# g_dirty, or the 30 s safety fallback elapsed (guards against a missed flag).
 interval:
   - interval: 1s
     then:
@@ -109,7 +122,14 @@ interval:
           condition:
             wifi.connected:
           then:
-            - component.update: my_display
+            - lambda: |-
+                uint32_t now = millis();
+                bool time_page = id(disp_mode).state == "Clock";
+                if (time_page || id(g_dirty) || (now - id(g_last_draw) > 30000)) {
+                  id(my_display)->update();
+                  id(g_dirty) = false;
+                  id(g_last_draw) = now;
+                }
 
 # ---------------- Telemetry ----------------
 text_sensor:

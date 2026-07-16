@@ -103,9 +103,15 @@ def generate(selected):
     names = [pg["name"] for pg in selected]
     display = dict(DISPLAY_TMPL)
     display["lambda"] = build_dispatch(selected)
+    # Boot to a known-light page (Clock if present), NOT the last-used one:
+    # restore_value would re-open a heavy page on power-up and could re-freeze
+    # the device, so a power cycle always recovers to a safe screen instead.
+    initial = "Clock" if "Clock" in names else (names[0] if names else "Off")
     select = {"platform": "template", "name": "mode", "id": "disp_mode",
-              "optimistic": True, "restore_value": True,
-              "options": names + ["Off"], "initial_option": names[0] if names else "Off"}
+              "optimistic": True, "restore_value": False,
+              "options": names + ["Off"], "initial_option": initial,
+              # switching pages must force a redraw (dirty-flag rendering).
+              "on_value": [{"lambda": "id(g_dirty) = true;"}]}
     body = dict(merged)
     body["display"] = [display]
     body["select"] = [select]

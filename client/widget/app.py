@@ -17,7 +17,7 @@ from smalltv import SmallTV
 from . import assets
 from . import autostart
 from . import config as cfg_mod
-from .bridges import PCStatsBridge, StockBridge
+from .bridges import PCStatsBridge, SectorBridge, StockBridge
 from .launch import self_command
 
 BRIGHTNESS_STEPS = [0.2, 0.4, 0.6, 0.8, 1.0]
@@ -31,6 +31,10 @@ class Manager:
         self.mode = None                # last known device mode
         self.stock = StockBridge(self)
         self.pcstats = PCStatsBridge(self)
+        self.sectors = SectorBridge(self)
+        self.rotation_on = bool(self.cfg["rotation"]["enabled"])
+        self._rot_stop = threading.Event()
+        self._rot_thread = None
         self._lock = threading.Lock()
 
     # ---- utils ----
@@ -42,6 +46,14 @@ class Manager:
 
     def reload_config(self):
         self.cfg = cfg_mod.load()
+        # reconcile live rotation state with the (possibly edited) config
+        want = bool(self.cfg["rotation"]["enabled"])
+        if want != self.rotation_on:
+            self.rotation_on = want
+            if want:
+                self.start_rotation()
+            else:
+                self._rot_stop.set()
         if self.icon:
             self.icon.update_menu()
 
@@ -90,6 +102,53 @@ class Manager:
             self.log("pc stats bridge started")
         self._refresh_icon()
 
+    def toggle_sectors(self):
+        if self.sectors.running:
+            self.sectors.stop()
+            self.log("sectors bridge stopped")
+        else:
+            self.sectors = SectorBridge(self)
+            self.sectors.start()
+            self.log("sectors bridge started")
+        self._refresh_icon()
+
+    # ---- rotation ----
+    def start_rotation(self):
+        if self._rot_thread and self._rot_thread.is_alive():
+            return
+        self._rot_stop.clear()
+        self._rot_thread = threading.Thread(target=self._rotation_loop, daemon=True)
+        self._rot_thread.start()
+
+    def _rotation_loop(self):
+        i = 0
+        while not self._rot_stop.is_set():
+            pages = [p for p in (self.cfg["rotation"]["pages"] or self.cfg["modes"])
+                     if p and p != "Off"]
+            if pages:
+                page = pages[i % len(pages)]
+                try:
+                    self.tv().set_mode(page)
+                    self.mode = page
+                    self.log(f"rotate -> {page}")
+                except Exception as e:
+                    self.log(f"rotation error: {e}")
+                i += 1
+                self._refresh_icon()
+            self._rot_stop.wait(max(2.0, float(self.cfg["rotation"]["interval"])))
+
+    def toggle_rotation(self):
+        self.rotation_on = not self.rotation_on
+        self.cfg["rotation"]["enabled"] = self.rotation_on
+        cfg_mod.save(self.cfg)
+        if self.rotation_on:
+            self.start_rotation()
+        else:
+            self._rot_stop.set()
+        self.log(f"rotation -> {self.rotation_on}")
+        if self.icon:
+            self.icon.update_menu()
+
     # ---- login item ----
     def toggle_login(self):
         new = not autostart.is_enabled()
@@ -123,6 +182,10 @@ class Manager:
             bits.append("stocks")
         if self.pcstats.running:
             bits.append("pc")
+        if self.sectors.running:
+            bits.append("sectors")
+        if self.rotation_on:
+            bits.append("rotating")
         self.icon.title = "SmallTV — " + " · ".join(bits)
         self.icon.update_menu()
 
@@ -138,8 +201,10 @@ class Manager:
 
     # ---- quit ----
     def quit(self):
+        self._rot_stop.set()
         self.stock.stop()
         self.pcstats.stop()
+        self.sectors.stop()
         if self.icon:
             self.icon.stop()
 
@@ -174,7 +239,11 @@ def build_menu(m: Manager):
              checked=lambda item: m.stock.running),
         Item("PC stats bridge", lambda: m.toggle_pcstats(),
              checked=lambda item: m.pcstats.running),
+        Item("Sectors bridge", lambda: m.toggle_sectors(),
+             checked=lambda item: m.sectors.running),
         Menu.SEPARATOR,
+        Item("Rotate pages", lambda: m.toggle_rotation(),
+             checked=lambda item: m.rotation_on),
         Item("Settings…", lambda: m.open_settings()),
         Item("Start at login", lambda: m.toggle_login(),
              checked=lambda item: autostart.is_enabled()),
@@ -192,13 +261,18 @@ def main():
 
     m = Manager()
 
-    # honour saved brightness + autostart-on-launch preferences
+    # honour saved autostart-on-launch preferences
     if m.cfg["stock"].get("autostart"):
         m.stock = StockBridge(m)
         m.stock.start()
     if m.cfg["pcstats"].get("autostart"):
         m.pcstats = PCStatsBridge(m)
         m.pcstats.start()
+    if m.cfg["sectors"].get("autostart"):
+        m.sectors = SectorBridge(m)
+        m.sectors.start()
+    if m.rotation_on:
+        m.start_rotation()
 
     m.icon = pystray.Icon(
         "smalltv_widget",
