@@ -152,6 +152,7 @@ requires: |
                 id(ma20)[i] = mid; id(bb_up)[i] = up; id(bb_lo)[i] = lo;
               } else { id(ma20)[i] = -1; id(bb_up)[i] = -1; id(bb_lo)[i] = -1; }
             }
+            id(g_dirty) = true;   // new candles -> redraw
     - platform: template
       # Per-candle volume, 1 base64url char each = level 0..63 (0..maxvol).
       name: "vol_data"

@@ -96,6 +96,38 @@ def run():
     ttk.Separator(frm, orient="horizontal").grid(row=row, column=0, columnspan=4, sticky="ew", pady=8)
     row += 1
 
+    ttk.Label(frm, text="S&P sector heatmap", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", **pad)
+    row += 1
+    ttk.Label(frm, text="Refresh (seconds)").grid(row=row, column=0, sticky="e", **pad)
+    sec_int_var = tk.StringVar(value=str(cfg["sectors"]["interval"]))
+    ttk.Entry(frm, textvariable=sec_int_var, width=8).grid(row=row, column=1, sticky="w", **pad)
+    row += 1
+    sec_auto_var = tk.BooleanVar(value=cfg["sectors"]["autostart"])
+    ttk.Checkbutton(frm, text="Start sectors bridge when the widget launches",
+                    variable=sec_auto_var).grid(row=row, column=0, columnspan=4, sticky="w", **pad)
+    row += 1
+
+    ttk.Separator(frm, orient="horizontal").grid(row=row, column=0, columnspan=4, sticky="ew", pady=8)
+    row += 1
+
+    ttk.Label(frm, text="Page rotation", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", **pad)
+    row += 1
+    rot_en_var = tk.BooleanVar(value=cfg["rotation"]["enabled"])
+    ttk.Checkbutton(frm, text="Rotate through pages automatically",
+                    variable=rot_en_var).grid(row=row, column=0, columnspan=4, sticky="w", **pad)
+    row += 1
+    ttk.Label(frm, text="Interval (seconds)").grid(row=row, column=0, sticky="e", **pad)
+    rot_int_var = tk.StringVar(value=str(cfg["rotation"]["interval"]))
+    ttk.Entry(frm, textvariable=rot_int_var, width=8).grid(row=row, column=1, sticky="w", **pad)
+    row += 1
+    ttk.Label(frm, text="Pages (comma-separated)").grid(row=row, column=0, sticky="e", **pad)
+    rot_pages_var = tk.StringVar(value=", ".join(cfg["rotation"]["pages"]))
+    ttk.Entry(frm, textvariable=rot_pages_var, width=30).grid(row=row, column=1, columnspan=3, sticky="w", **pad)
+    row += 1
+
+    ttk.Separator(frm, orient="horizontal").grid(row=row, column=0, columnspan=4, sticky="ew", pady=8)
+    row += 1
+
     login_var = tk.BooleanVar(value=autostart.is_enabled())
     ttk.Checkbutton(frm, text="Start SmallTV Widget at login",
                     variable=login_var).grid(row=row, column=0, columnspan=4, sticky="w", **pad)
@@ -105,8 +137,10 @@ def run():
         try:
             s_int = max(1.0, float(stock_int_var.get()))
             p_int = max(1.0, float(pc_int_var.get()))
+            sec_int = max(5.0, float(sec_int_var.get()))
+            rot_int = max(2.0, float(rot_int_var.get()))
         except ValueError:
-            messagebox.showerror("Invalid", "Refresh intervals must be numbers.")
+            messagebox.showerror("Invalid", "Refresh/interval values must be numbers.")
             return
         cfg["device_ip"] = ip_var.get().strip() or cfg["device_ip"]
         cfg["stock"]["ticker"] = ticker_var.get().strip().upper()
@@ -115,6 +149,11 @@ def run():
         cfg["pcstats"]["title"] = pc_title_var.get().strip() or "PC Monitor"
         cfg["pcstats"]["interval"] = p_int
         cfg["pcstats"]["autostart"] = bool(pc_auto_var.get())
+        cfg["sectors"]["interval"] = sec_int
+        cfg["sectors"]["autostart"] = bool(sec_auto_var.get())
+        cfg["rotation"]["enabled"] = bool(rot_en_var.get())
+        cfg["rotation"]["interval"] = rot_int
+        cfg["rotation"]["pages"] = [p.strip() for p in rot_pages_var.get().split(",") if p.strip()]
         cfg["start_at_login"] = bool(login_var.get())
         cfg_mod.save(cfg)
         try:
