@@ -38,6 +38,7 @@ DISPLAY_TMPL = {
     "height": 240, "width": 240, "offset_height": 0, "offset_width": 0,
     "fragmentation": 30, "eightbitcolor": False, "spi_mode": "mode3",
     "data_rate": 40000000, "update_interval": "never", "auto_clear_enabled": False,
+    "stream_port": 6789,   # PC-rendered framebuffer stream (hybrid; viable on the lean clock-only build)
 }
 
 def discover():

@@ -22,6 +22,7 @@ from esphome.const import (
 from . import st7789v_ns
 
 CONF_EIGHTBITCOLOR = "eightbitcolor"
+CONF_STREAM_PORT = "stream_port"
 
 CODEOWNERS = ["@kbx81"]
 
@@ -167,6 +168,7 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_POWER_SUPPLY): cv.use_id(power_supply.PowerSupply),
             cv.Optional(CONF_EIGHTBITCOLOR, default=False): cv.boolean,
+            cv.Optional(CONF_STREAM_PORT, default=0): cv.int_range(min=0, max=65535),
             cv.Optional(CONF_HEIGHT): cv.int_,
             cv.Optional(CONF_WIDTH): cv.int_,
             cv.Optional(CONF_OFFSET_HEIGHT): cv.int_,
@@ -200,6 +202,7 @@ async def to_code(config):
         cg.add(var.set_buffer_fragmentation(config[CONF_FRAGMENTATION]))
 
     cg.add(var.set_eightbitcolor(config[CONF_EIGHTBITCOLOR]))
+    cg.add(var.set_stream_port(config[CONF_STREAM_PORT]))
 
     dc = await cg.gpio_pin_expression(config[CONF_DC_PIN])
     cg.add(var.set_dc_pin(dc))

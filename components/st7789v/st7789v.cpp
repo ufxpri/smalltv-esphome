@@ -6,6 +6,11 @@ namespace st7789v {
 
 static const char *const TAG = "st7789v";
 static const size_t TEMP_BUFFER_SIZE = 128;
+// Max pixels per streamed tile (1024 px = 2048 bytes; heap is tight). A 240x4
+// strip = 960 px fits, so the PC pushes a full frame as 60 strip-tiles.
+static const size_t STREAM_TILE_MAX_PIXELS = 1024;
+static const uint32_t STREAM_IDLE_TIMEOUT_MS = 8000;   // no data this long -> local page
+static const uint32_t STREAM_LOOP_BUDGET = 3072;       // max bytes/loop() to stay responsive
 
 void ST7789V::setup() {
   ESP_LOGCONFIG(TAG, "Setting up SPI ST7789V...");
@@ -120,6 +125,9 @@ void ST7789V::setup() {
       this->get_width_internal() * this->get_height_internal() / this->buffer_fragmentation_;
   this->init_internal_(this->get_buffer_length_());
   memset(this->buffer_, 0x00, this->get_buffer_length_());
+
+  if (this->stream_port_ != 0)
+    this->stream_buf_ = new uint8_t[STREAM_TILE_MAX_PIXELS * 2];
 }
 
 void ST7789V::dump_config() {
@@ -145,6 +153,10 @@ void ST7789V::dump_config() {
 float ST7789V::get_setup_priority() const { return setup_priority::PROCESSOR; }
 
 void ST7789V::update() {
+  // Hybrid mode: while the PC is streaming a rendered framebuffer, don't let a
+  // local page overwrite it.
+  if (this->streaming_active_())
+    return;
   this->current_fragment_offset_pixels_ = 0;
   for (unsigned frag = 0; frag < this->buffer_fragmentation_; frag++) {
     this->clear_clipping_();
@@ -157,6 +169,141 @@ void ST7789V::update() {
     App.feed_wdt();
     this->current_fragment_offset_pixels_ += this->buffer_fragment_length_pixels_;
   }
+}
+
+bool ST7789V::streaming_active_() {
+#ifdef USE_ESP8266
+  return this->stream_port_ != 0 && this->stream_client_ && this->stream_client_.connected() &&
+         (millis() - this->last_stream_ms_ < STREAM_IDLE_TIMEOUT_MS);
+#else
+  return false;
+#endif
+}
+
+void ST7789V::loop() {
+#ifdef USE_ESP8266
+  if (this->stream_port_ == 0 || this->stream_buf_ == nullptr)
+    return;
+
+  // Lazily start the TCP server once WiFi is up.
+  if (this->stream_server_ == nullptr) {
+    if (WiFi.status() != WL_CONNECTED)
+      return;
+    this->stream_server_ = new WiFiServer(this->stream_port_);
+    this->stream_server_->begin();
+    this->stream_server_->setNoDelay(true);
+    ESP_LOGI(TAG, "Framebuffer stream listening on port %u", this->stream_port_);
+  }
+
+  // Free a closed connection's lwip resources before accepting the next one —
+  // otherwise the dead client's TCP buffers leak and starve the heap.
+  if (this->stream_client_ && !this->stream_client_.connected())
+    this->stream_client_.stop();
+
+  // Accept a single client (the PC widget). Extra connections wait.
+  if (!this->stream_client_ || !this->stream_client_.connected()) {
+    WiFiClient c = this->stream_server_->available();
+    if (c) {
+      this->stream_client_ = c;
+      this->stream_client_.setNoDelay(true);
+      this->stream_client_.setTimeout(0);
+      this->stream_hdr_pos_ = 0;
+      this->tile_need_ = 0;
+      this->tile_have_ = 0;
+      this->last_stream_ms_ = millis();
+      ESP_LOGI(TAG, "Framebuffer stream client connected");
+    }
+  }
+
+  this->stream_service_();
+
+  // Restore the local page the instant a stream ends.
+  bool active = this->streaming_active_();
+  if (this->was_streaming_ && !active)
+    this->update();
+  this->was_streaming_ = active;
+#endif
+}
+
+void ST7789V::stream_service_() {
+#ifdef USE_ESP8266
+  if (!this->stream_client_ || !this->stream_client_.connected())
+    return;
+
+  uint32_t budget = STREAM_LOOP_BUDGET;
+  while (budget > 0 && this->stream_client_.available() > 0) {
+    if (this->tile_need_ == 0) {
+      // Reading the 8-byte tile header, one byte at a time.
+      int b = this->stream_client_.read();
+      if (b < 0)
+        break;
+      budget--;
+      this->last_stream_ms_ = millis();
+      this->stream_hdr_[this->stream_hdr_pos_++] = (uint8_t) b;
+      if (this->stream_hdr_pos_ == 8) {
+        this->stream_hdr_pos_ = 0;
+        this->tile_x_ = (this->stream_hdr_[0] << 8) | this->stream_hdr_[1];
+        this->tile_y_ = (this->stream_hdr_[2] << 8) | this->stream_hdr_[3];
+        this->tile_w_ = (this->stream_hdr_[4] << 8) | this->stream_hdr_[5];
+        this->tile_h_ = (this->stream_hdr_[6] << 8) | this->stream_hdr_[7];
+        if (this->tile_w_ == 0 || this->tile_h_ == 0)
+          continue;  // heartbeat / keepalive — no pixels follow
+        this->tile_need_ = (uint32_t) this->tile_w_ * this->tile_h_ * 2;
+        this->tile_have_ = 0;
+        // Reject bad geometry but stay byte-synced by draining the payload.
+        this->tile_skip_ = (this->tile_need_ > STREAM_TILE_MAX_PIXELS * 2) ||
+                           (this->tile_x_ + this->tile_w_ > this->get_width_internal()) ||
+                           (this->tile_y_ + this->tile_h_ > this->get_height_internal());
+      }
+    } else {
+      // Reading the tile's pixel payload into stream_buf_ (or draining if skip).
+      uint32_t left = this->tile_need_ - this->tile_have_;
+      uint32_t want = left < budget ? left : budget;
+      uint8_t scratch[256];
+      uint8_t *dst = this->tile_skip_ ? scratch : (this->stream_buf_ + this->tile_have_);
+      if (want > sizeof(scratch) && this->tile_skip_)
+        want = sizeof(scratch);
+      int n = this->stream_client_.read(dst, want);
+      if (n <= 0)
+        break;
+      budget -= n;
+      this->tile_have_ += n;
+      this->last_stream_ms_ = millis();
+      if (this->tile_have_ >= this->tile_need_) {
+        if (!this->tile_skip_)
+          this->stream_blit_tile_(this->tile_x_, this->tile_y_, this->tile_w_, this->tile_h_, this->stream_buf_,
+                                  this->tile_need_);
+        this->tile_need_ = 0;
+        this->tile_have_ = 0;
+        this->tile_skip_ = false;
+      }
+    }
+  }
+  App.feed_wdt();
+#endif
+}
+
+// Write one already-buffered tile straight to panel GRAM (mirrors write_display_data).
+void ST7789V::stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data, size_t len) {
+  uint16_t x1 = this->offset_height_ + x;
+  uint16_t x2 = x1 + w - 1;
+  uint16_t y1 = this->offset_width_ + y;
+  uint16_t y2 = y1 + h - 1;
+
+  this->enable();
+  this->dc_pin_->digital_write(false);
+  this->write_byte(ST7789_CASET);
+  this->dc_pin_->digital_write(true);
+  this->write_addr_(x1, x2);
+  this->dc_pin_->digital_write(false);
+  this->write_byte(ST7789_RASET);
+  this->dc_pin_->digital_write(true);
+  this->write_addr_(y1, y2);
+  this->dc_pin_->digital_write(false);
+  this->write_byte(ST7789_RAMWR);
+  this->dc_pin_->digital_write(true);
+  this->write_array(data, len);
+  this->disable();
 }
 
 void ST7789V::fill(Color color) {
