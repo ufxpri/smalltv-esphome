@@ -26,7 +26,8 @@ HOST = sys.argv[1] if len(sys.argv) > 1 else "smalltv-ultra.local"
 PORT = 6789
 W = H = 240
 SS = 2                       # supersample factor for anti-aliasing
-TW, TH = 40, 24              # tile grid (960 px/tile <= device max 1024)
+TW, TH = 12, 12              # tile grid — small patches fit motion tightly (measured
+                             # ~1.7x more fps than 40x24, still under device per-patch overhead)
 FPS_MIN, FPS_MAX = 2, 12     # dynamic frame rate: calm when idle, frantic when busy
 CLAUDE = (217, 119, 87)      # Anthropic coral
 
@@ -64,7 +65,7 @@ def status_for(cpu):
     return "멜트다운!!", (255, 60, 40)
 
 
-def render(cpu, ram, t):
+def render(cpu, t):
     """Return a 240x240 RGB PIL image of the furnace at the given CPU load."""
     load = cpu / 100.0
     w, h = W * SS, H * SS
@@ -151,9 +152,16 @@ def to565(img):
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)   # (H,W) uint16
 
 
+# RGB565 palette for the dirty-patch debug overlay (cycles per patch)
+DBG_PALETTE = [0xF800, 0x07E0, 0x001F, 0xFFE0, 0xF81F, 0x07FF, 0xFFFF, 0xFD20]
+
+
 class Streamer:
-    def __init__(self, host, port):
+    def __init__(self, host, port, tw=TW, th=TH, debug=False):
         self.host, self.port = host, port
+        self.tw, self.th = tw, th
+        self.debug = debug
+        self._dbg = 0
         self.sock = None
         self.prev = None
         self.last_send = 0.0
@@ -169,16 +177,46 @@ class Streamer:
         self.last_send = time.time()
 
     def push(self, img):
-        cur = to565(img)
+        return self.push565(to565(img))
+
+    def push565(self, cur):
+        """Send changed patches. Horizontally-adjacent changed tiles in a row are
+        merged into one wider blit (fewer, more atomic panel writes) — capped at
+        the device tile buffer (1024 px)."""
         sent = 0
         buf = bytearray()
-        for ty in range(0, H, TH):
-            for tx in range(0, W, TW):
-                tile = cur[ty:ty + TH, tx:tx + TW]
-                if self.prev is not None and np.array_equal(tile, self.prev[ty:ty + TH, tx:tx + TW]):
+        tw, th = self.tw, self.th
+        prev = self.prev
+        max_px = 1024
+
+        def changed(ty, hh, x, w):
+            return prev is None or not np.array_equal(cur[ty:ty + hh, x:x + w], prev[ty:ty + hh, x:x + w])
+
+        for ty in range(0, H, th):
+            hh = min(th, H - ty)
+            max_run_w = max(tw, (max_px // hh))
+            x = 0
+            while x < W:
+                w = min(tw, W - x)
+                if not changed(ty, hh, x, w):
+                    x += w
                     continue
-                buf += struct.pack(">HHHH", tx, ty, TW, TH)
-                buf += tile.astype(">u2").tobytes()
+                run_x, run_w = x, w          # extend the run over adjacent changed tiles
+                x += w
+                while x < W:
+                    w2 = min(tw, W - x)
+                    if run_w + w2 > max_run_w or not changed(ty, hh, x, w2):
+                        break
+                    run_w += w2
+                    x += w2
+                rect = cur[ty:ty + hh, run_x:run_x + run_w]
+                if self.debug:
+                    rect = rect.copy()
+                    c = DBG_PALETTE[self._dbg % len(DBG_PALETTE)]
+                    self._dbg += 1
+                    rect[0, :] = c; rect[-1, :] = c; rect[:, 0] = c; rect[:, -1] = c
+                buf += struct.pack(">HHHH", run_x, ty, run_w, hh)
+                buf += rect.astype(">u2").tobytes()
                 sent += 1
         if buf:
             self._send(bytes(buf))
@@ -199,9 +237,7 @@ def main():
                 frame_start = time.time()
                 t = frame_start - t0
                 cpu = psutil.cpu_percent()
-                ram = psutil.virtual_memory().percent
-                img = render(cpu, ram, t)
-                n = s.push(img)
+                n = s.push(render(cpu, t))
                 # dynamic fps: scale with CPU load (idle -> FPS_MIN, busy -> FPS_MAX)
                 fps = FPS_MIN + (cpu / 100.0) * (FPS_MAX - FPS_MIN)
                 print(f"cpu {cpu:5.1f}%  fps {fps:4.1f}  tiles {n:2d}   ", end="\r", flush=True)
