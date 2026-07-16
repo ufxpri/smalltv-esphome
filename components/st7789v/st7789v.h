@@ -176,13 +176,16 @@ class ST7789V : public display::DisplayBuffer,
   uint32_t tile_have_{0};          // bytes accumulated so far
   uint16_t tile_x_{0}, tile_y_{0}, tile_w_{0}, tile_h_{0};
   bool tile_skip_{false};          // drop this tile (bad dims) but stay in sync
+  bool tile_fmt332_{false};        // this tile's payload is 8-bit RGB332 (1 B/px)
+  uint16_t lut332_[256];           // RGB332 -> RGB565 expansion, built in setup()
 #ifdef USE_ESP8266
   WiFiServer *stream_server_{nullptr};
   WiFiClient stream_client_;
 #endif
   bool streaming_active_();
   void stream_service_();
-  void stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data, size_t len);
+  void stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data, size_t len,
+                         bool fmt332);
 
   void init_reset_();
   void backlight_(bool onoff);
