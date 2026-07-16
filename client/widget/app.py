@@ -240,7 +240,7 @@ def build_menu(m: Manager):
         Menu.SEPARATOR,
         Item("Stocks bridge", lambda: m.toggle_stock(),
              checked=lambda item: m.stock.running),
-        Item("PC stats bridge", lambda: m.toggle_pcstats(),
+        Item("Worker bridge (CPU)", lambda: m.toggle_pcstats(),
              checked=lambda item: m.pcstats.running),
         Item("Sectors bridge", lambda: m.toggle_sectors(),
              checked=lambda item: m.sectors.running),
