@@ -12,7 +12,10 @@ device falls back to its local clock page.
 Protocol per tile: [u16 x, y, w, h  big-endian][w*h*2 bytes RGB565 big-endian].
 A zero-size header (0,0,0,0) is a heartbeat that keeps the stream "active".
 """
+import io
+import json
 import math
+import os
 import socket
 import struct
 import sys
@@ -21,6 +24,50 @@ import time
 import numpy as np
 import psutil
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+TELEM_DIR = "/tmp/smalltv"
+
+
+class Telemetry:
+    """Writes a live mirror frame + patch grid + stats for the control panel.
+    Throttled to ~5 Hz; enabled via the SMALLTV_TELEMETRY env var."""
+
+    def __init__(self, source):
+        os.makedirs(TELEM_DIR, exist_ok=True)
+        self.source = source
+        self.last_write = 0.0
+        self._recent = []                      # (time, bytes) over a short window
+
+    def record(self, cur, changed_grid, blits, nbytes):
+        now = time.time()
+        self._recent.append((now, nbytes))
+        self._recent = [(t, b) for t, b in self._recent if now - t < 2.0]
+        if now - self.last_write < 0.2:
+            return
+        self.last_write = now
+        rt = [t for t, _ in self._recent]
+        fps = (len(rt) - 1) / (rt[-1] - rt[0]) if len(rt) > 1 and rt[-1] > rt[0] else 0.0
+        span = max(now - self._recent[0][0], 0.01)
+        kbps = sum(b for _, b in self._recent) / span / 1024.0
+
+        a = cur.astype(np.uint32)              # RGB565 -> RGB888 for the preview
+        rgb = np.stack([((a >> 11) & 0x1F) << 3, ((a >> 5) & 0x3F) << 2, (a & 0x1F) << 3], 2).astype(np.uint8)
+        buf = io.BytesIO()
+        Image.fromarray(rgb).save(buf, "JPEG", quality=70)
+        self._atomic(TELEM_DIR + "/frame.jpg", buf.getvalue(), "wb")
+
+        gh, gw = changed_grid.shape
+        stat = {"source": self.source, "fps": round(fps, 1), "blits": blits,
+                "kbps": round(kbps), "gw": gw, "gh": gh,
+                "grid": changed_grid.astype(np.uint8).flatten().tolist(), "ts": now}
+        self._atomic(TELEM_DIR + "/stat.json", json.dumps(stat), "w")
+
+    @staticmethod
+    def _atomic(path, data, mode):
+        tmp = path + ".tmp"
+        with open(tmp, mode) as f:
+            f.write(data)
+        os.replace(tmp, path)
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "smalltv-ultra.local"
 PORT = 6789
@@ -146,8 +193,12 @@ def render(cpu, t):
     return img
 
 
-def to565(img):
-    a = np.asarray(img, dtype=np.uint16)
+def to565(img, dither=False):
+    a = np.asarray(img)
+    if dither and a.shape[:2] == _BT.shape:                 # dither 888 -> 565 (kills gradient banding)
+        d = (_BT[:, :, None] - 0.5) * np.array([8.0, 4.0, 8.0], np.float32)  # step: R/B 5-bit, G 6-bit
+        a = np.clip(a.astype(np.float32) + d, 0, 255)
+    a = a.astype(np.uint16)
     r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)   # (H,W) uint16
 
@@ -161,18 +212,49 @@ DBG_PALETTE = [0xF800, 0x07E0, 0x001F, 0xFFE0, 0xF81F, 0x07FF, 0xFFFF, 0xFD20]
 # (tiles / REFRESH_K) frames.
 REFRESH_K = 12
 
+# Manual colour depth / dithering, live-controlled via this file by the panel.
+MODE_FILE = TELEM_DIR + "/mode.json"
+_BAYER = np.array([[0, 32, 8, 40, 2, 34, 10, 42], [48, 16, 56, 24, 50, 18, 58, 26],
+                   [12, 44, 4, 36, 14, 46, 6, 38], [60, 28, 52, 20, 62, 30, 54, 22],
+                   [3, 35, 11, 43, 1, 33, 9, 41], [51, 19, 59, 27, 49, 17, 57, 25],
+                   [15, 47, 7, 39, 13, 45, 5, 37], [63, 31, 55, 23, 61, 29, 53, 21]]) / 64.0
+_BT = np.tile(_BAYER, (H // 8, W // 8))
+
+
+def encode_tile(tile565, x, y, bits, dither):
+    """Bytes for one tile: RGB565 (2 B/px) or dithered RGB332 (1 B/px)."""
+    if bits != 8:
+        return tile565.astype(">u2").tobytes()
+    h, w = tile565.shape
+    r = ((tile565 >> 11) & 0x1F).astype(np.float32) / 31.0
+    g = ((tile565 >> 5) & 0x3F).astype(np.float32) / 63.0
+    b = (tile565 & 0x1F).astype(np.float32) / 31.0
+    if dither:
+        d = _BT[y:y + h, x:x + w]
+        r = r + (d - 0.5) / 7.0
+        g = g + (d - 0.5) / 7.0
+        b = b + (d - 0.5) / 3.0
+    r3 = np.clip(np.round(r * 7), 0, 7).astype(np.uint8)
+    g3 = np.clip(np.round(g * 7), 0, 7).astype(np.uint8)
+    b2 = np.clip(np.round(b * 3), 0, 3).astype(np.uint8)
+    return ((r3 << 5) | (g3 << 2) | b2).astype(np.uint8).tobytes()
+
 
 class Streamer:
     def __init__(self, host, port, tw=TW, th=TH, debug=False):
         self.host, self.port = host, port
         self.tw, self.th = tw, th
         self.debug = debug
+        self.color_bits = 16          # 16 = RGB565, 8 = RGB332 (manual, via MODE_FILE)
+        self.dither = False
+        self._mode_ts = 0.0
         self._dbg = 0
         self.refresh_k = REFRESH_K
         self.refresh_cursor = 0
         self.sock = None
         self.prev = None
         self.last_send = 0.0
+        self.telem = Telemetry(os.path.basename(sys.argv[0])) if os.environ.get("SMALLTV_TELEMETRY") else None
 
     def connect(self):
         self.sock = socket.create_connection((self.host, self.port), timeout=6)
@@ -180,17 +262,34 @@ class Streamer:
         self.prev = None
         print(f"connected to {self.host}:{self.port}")
 
+    def _read_mode(self):
+        now = time.time()
+        if now - self._mode_ts < 0.5:
+            return
+        self._mode_ts = now
+        try:
+            with open(MODE_FILE) as f:
+                m = json.load(f)
+            new_bits = 8 if int(m.get("bits", 16)) == 8 else 16
+            new_dither = bool(m.get("dither", False))
+            if new_bits != self.color_bits or new_dither != self.dither:
+                self.color_bits, self.dither = new_bits, new_dither
+                self.prev = None       # repaint fully in the new format
+        except Exception:
+            pass
+
     def _send(self, data):
         self.sock.sendall(data)
         self.last_send = time.time()
 
     def push(self, img):
-        return self.push565(to565(img))
+        return self.push565(to565(img, self.dither))
 
     def push565(self, cur):
         """Send changed patches (horizontally-merged into wider blits), plus a few
         'stale' patches per frame in raster order so any tile dropped on connect /
         in the initial burst is healed within one sweep."""
+        self._read_mode()
         tw, th = self.tw, self.th
         prev = self.prev
         gw = (W + tw - 1) // tw
@@ -199,6 +298,7 @@ class Streamer:
         # decide which grid cells to send this frame
         if prev is None:
             send = np.ones((gh, gw), dtype=bool)                 # first frame: full paint
+            changed = send
         else:
             send = np.zeros((gh, gw), dtype=bool)
             for gy in range(gh):
@@ -207,6 +307,7 @@ class Streamer:
                     tx, ww = gx * tw, min(tw, W - gx * tw)
                     if not np.array_equal(cur[ty:ty + hh, tx:tx + ww], prev[ty:ty + hh, tx:tx + ww]):
                         send[gy, gx] = True
+            changed = send.copy()                                # motion grid (before sweep)
             # intra-refresh: also resend K patches in raster order, cycling
             total = gh * gw
             for _ in range(min(self.refresh_k, total)):
@@ -238,13 +339,16 @@ class Streamer:
                     c = DBG_PALETTE[self._dbg % len(DBG_PALETTE)]
                     self._dbg += 1
                     rect[0, :] = c; rect[-1, :] = c; rect[:, 0] = c; rect[:, -1] = c
-                buf += struct.pack(">HHHH", run_x, ty, run_w, hh)
-                buf += rect.astype(">u2").tobytes()
+                wfield = run_w | 0x8000 if self.color_bits == 8 else run_w
+                buf += struct.pack(">HHHH", run_x, ty, wfield, hh)
+                buf += encode_tile(rect, run_x, ty, self.color_bits, self.dither)
                 sent += 1
         if buf:
             self._send(bytes(buf))
         elif time.time() - self.last_send > 1.5:
             self._send(struct.pack(">HHHH", 0, 0, 0, 0))   # heartbeat (only if refresh_k=0)
+        if self.telem:
+            self.telem.record(cur, changed, sent, len(buf))
         self.prev = cur
         return sent
 
