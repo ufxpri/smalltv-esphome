@@ -2,6 +2,10 @@
 /.esphome/
 /secrets.yaml
 
+# Local Python venv + runtime logs
+/.venv/
+/logs/
+
 # Python caches from local external components
 __pycache__/
 *.pyc
