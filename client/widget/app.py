@@ -134,7 +134,10 @@ class Manager:
                 except Exception as e:
                     self.log(f"rotation error: {e}")
                 i += 1
-                self._refresh_icon()
+                try:
+                    self._refresh_icon()          # never let a UI hiccup kill rotation
+                except Exception as e:
+                    self.log(f"rotation refresh error: {e}")
             self._rot_stop.wait(max(2.0, float(self.cfg["rotation"]["interval"])))
 
     def toggle_rotation(self):
