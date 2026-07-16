@@ -22,3 +22,6 @@ __pycache__/
 /client/build/smalltv_widget/
 *.manifest
 
+
+# Downloaded sticker/GIF assets
+/client/gifs/
