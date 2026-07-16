@@ -6,6 +6,9 @@
 #ifdef USE_POWER_SUPPLY
 #include "esphome/components/power_supply/power_supply.h"
 #endif
+#ifdef USE_ESP8266
+#include <ESP8266WiFi.h>
+#endif
 
 namespace esphome {
 namespace st7789v {
@@ -120,6 +123,9 @@ class ST7789V : public display::DisplayBuffer,
 #endif
 
   void set_eightbitcolor(bool eightbitcolor) { this->eightbitcolor_ = eightbitcolor; }
+  // TCP port for the PC-rendered framebuffer stream (0 = disabled). While a
+  // client is actively streaming, local page rendering is suspended.
+  void set_stream_port(uint16_t port) { this->stream_port_ = port; }
   void set_height(uint32_t height) { this->height_ = height; }
   void set_width(uint16_t width) { this->width_ = width; }
   void set_offset_height(uint32_t offset_height) { this->offset_height_ = offset_height; }
@@ -132,6 +138,7 @@ class ST7789V : public display::DisplayBuffer,
   void dump_config() override;
   float get_setup_priority() const override;
   void update() override;
+  void loop() override;
   void fill(Color color) override;
 
   void write_display_data();
@@ -154,6 +161,28 @@ class ST7789V : public display::DisplayBuffer,
   uint16_t buffer_fragmentation_{1};
   uint32_t current_fragment_offset_pixels_{0};
   uint32_t buffer_fragment_length_pixels_{0};
+
+  // ---- PC-rendered framebuffer streaming (hybrid mode) ----
+  // Local pages render as usual until a client connects and streams tiles; then
+  // update() bows out and the panel shows exactly what the PC sends. On stream
+  // stop the local page is restored. Tiles: [u16 x,y,w,h BE][w*h*2 RGB565 BE].
+  uint16_t stream_port_{0};
+  uint32_t last_stream_ms_{0};
+  bool was_streaming_{false};
+  uint8_t *stream_buf_{nullptr};   // accumulates one tile's pixels (<= STREAM_TILE_MAX)
+  uint8_t stream_hdr_[8];
+  uint8_t stream_hdr_pos_{0};
+  uint32_t tile_need_{0};          // bytes expected for the current tile
+  uint32_t tile_have_{0};          // bytes accumulated so far
+  uint16_t tile_x_{0}, tile_y_{0}, tile_w_{0}, tile_h_{0};
+  bool tile_skip_{false};          // drop this tile (bad dims) but stay in sync
+#ifdef USE_ESP8266
+  WiFiServer *stream_server_{nullptr};
+  WiFiClient stream_client_;
+#endif
+  bool streaming_active_();
+  void stream_service_();
+  void stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data, size_t len);
 
   void init_reset_();
   void backlight_(bool onoff);

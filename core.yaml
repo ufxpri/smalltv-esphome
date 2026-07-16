@@ -146,3 +146,10 @@ sensor:
     name: "WiFi Signal"
     id: wifi_rssi
     update_interval: 30s
+  - platform: template
+    name: "Free Heap"
+    id: free_heap
+    lambda: 'return ESP.getFreeHeap();'
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    update_interval: 5s
