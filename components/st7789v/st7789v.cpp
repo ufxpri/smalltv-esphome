@@ -126,8 +126,15 @@ void ST7789V::setup() {
   this->init_internal_(this->get_buffer_length_());
   memset(this->buffer_, 0x00, this->get_buffer_length_());
 
-  if (this->stream_port_ != 0)
+  if (this->stream_port_ != 0) {
     this->stream_buf_ = new uint8_t[STREAM_TILE_MAX_PIXELS * 2];
+    // RGB332 -> RGB565 expansion LUT (for adaptive 8-bit tiles)
+    for (int i = 0; i < 256; i++) {
+      uint8_t r3 = (i >> 5) & 0x07, g3 = (i >> 2) & 0x07, b2 = i & 0x03;
+      uint8_t r5 = (r3 << 2) | (r3 >> 1), g6 = (g3 << 3) | g3, b5 = (b2 << 3) | (b2 << 1) | (b2 >> 1);
+      this->lut332_[i] = ((uint16_t) r5 << 11) | ((uint16_t) g6 << 5) | b5;
+    }
+  }
 }
 
 void ST7789V::dump_config() {
@@ -244,14 +251,17 @@ void ST7789V::stream_service_() {
         this->stream_hdr_pos_ = 0;
         this->tile_x_ = (this->stream_hdr_[0] << 8) | this->stream_hdr_[1];
         this->tile_y_ = (this->stream_hdr_[2] << 8) | this->stream_hdr_[3];
-        this->tile_w_ = (this->stream_hdr_[4] << 8) | this->stream_hdr_[5];
+        uint16_t raw_w = (this->stream_hdr_[4] << 8) | this->stream_hdr_[5];
+        this->tile_fmt332_ = (raw_w & 0x8000) != 0;   // high bit of w = 8-bit RGB332 payload
+        this->tile_w_ = raw_w & 0x7FFF;
         this->tile_h_ = (this->stream_hdr_[6] << 8) | this->stream_hdr_[7];
         if (this->tile_w_ == 0 || this->tile_h_ == 0)
           continue;  // heartbeat / keepalive — no pixels follow
-        this->tile_need_ = (uint32_t) this->tile_w_ * this->tile_h_ * 2;
+        uint32_t px = (uint32_t) this->tile_w_ * this->tile_h_;
+        this->tile_need_ = px * (this->tile_fmt332_ ? 1 : 2);
         this->tile_have_ = 0;
         // Reject bad geometry but stay byte-synced by draining the payload.
-        this->tile_skip_ = (this->tile_need_ > STREAM_TILE_MAX_PIXELS * 2) ||
+        this->tile_skip_ = (px > STREAM_TILE_MAX_PIXELS) ||
                            (this->tile_x_ + this->tile_w_ > this->get_width_internal()) ||
                            (this->tile_y_ + this->tile_h_ > this->get_height_internal());
       }
@@ -272,7 +282,7 @@ void ST7789V::stream_service_() {
       if (this->tile_have_ >= this->tile_need_) {
         if (!this->tile_skip_)
           this->stream_blit_tile_(this->tile_x_, this->tile_y_, this->tile_w_, this->tile_h_, this->stream_buf_,
-                                  this->tile_need_);
+                                  this->tile_need_, this->tile_fmt332_);
         this->tile_need_ = 0;
         this->tile_have_ = 0;
         this->tile_skip_ = false;
@@ -284,7 +294,8 @@ void ST7789V::stream_service_() {
 }
 
 // Write one already-buffered tile straight to panel GRAM (mirrors write_display_data).
-void ST7789V::stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data, size_t len) {
+void ST7789V::stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data, size_t len,
+                                bool fmt332) {
   uint16_t x1 = this->offset_height_ + x;
   uint16_t x2 = x1 + w - 1;
   uint16_t y1 = this->offset_width_ + y;
@@ -302,7 +313,23 @@ void ST7789V::stream_blit_tile_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
   this->dc_pin_->digital_write(false);
   this->write_byte(ST7789_RAMWR);
   this->dc_pin_->digital_write(true);
-  this->write_array(data, len);
+  if (!fmt332) {
+    this->write_array(data, len);                     // already RGB565 big-endian
+  } else {
+    uint8_t tmp[256];                                 // expand RGB332 -> RGB565 on the fly
+    size_t ti = 0;
+    for (size_t i = 0; i < len; i++) {
+      uint16_t c = this->lut332_[data[i]];
+      tmp[ti++] = c >> 8;
+      tmp[ti++] = c & 0xFF;
+      if (ti == sizeof(tmp)) {
+        this->write_array(tmp, ti);
+        ti = 0;
+      }
+    }
+    if (ti)
+      this->write_array(tmp, ti);
+  }
   this->disable();
 }
 
