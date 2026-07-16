@@ -140,15 +140,18 @@ class Bridge(threading.Thread):
     def __init__(self, manager):
         super().__init__(daemon=True)
         self.m = manager
-        self._stop = threading.Event()
+        # NOTE: must NOT be named `_stop` — threading.Thread has an internal
+        # `_stop()` method, and shadowing it with an Event makes is_alive()
+        # raise "TypeError: 'Event' object is not callable" on a finished thread.
+        self._stopev = threading.Event()
         self.last_status = ""
 
     @property
     def running(self) -> bool:
-        return self.is_alive() and not self._stop.is_set()
+        return self.is_alive() and not self._stopev.is_set()
 
     def stop(self):
-        self._stop.set()
+        self._stopev.set()
 
     def _interval(self) -> float:
         return 5.0
@@ -158,14 +161,14 @@ class Bridge(threading.Thread):
 
     def run(self):
         from smalltv import SmallTV
-        while not self._stop.is_set():
+        while not self._stopev.is_set():
             try:
                 tv = SmallTV(self.m.cfg["device_ip"])
                 self.tick(tv)
             except Exception as e:                       # keep the thread alive
                 self.last_status = f"error: {e}"
                 self.m.log(f"[{self.label}] {self.last_status}")
-            self._stop.wait(max(1.0, float(self._interval())))
+            self._stopev.wait(max(1.0, float(self._interval())))
 
 
 class StockBridge(Bridge):
