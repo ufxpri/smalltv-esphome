@@ -1,8 +1,10 @@
 name: Weather
 description: >
-  STUB. Wire a data source: either push from a PC bridge (like stocks) into
-  text entities, or add an on-device http_request in `requires`. Kept minimal
-  so it costs almost nothing until someone builds it out.
+  STUB — draws a placeholder, not real weather. Wire a data source to finish it:
+  push values from the PC into text entities, or add an on-device http_request
+  in `requires`. Kept minimal (52 B RAM) so it costs almost nothing meanwhile.
+  Note the local page set is deliberately lean; anything heavy belongs in a PC
+  stream source instead (see client/stream_stocks.py).
 author: you
 
 requires: ""

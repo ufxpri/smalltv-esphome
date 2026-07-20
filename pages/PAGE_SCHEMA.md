@@ -37,9 +37,18 @@ render: |
 ## Rules (from RULES.md — they matter, ESP8266 is single-core)
 - **Keep `render` light.** It runs ~30× per refresh (once per display fragment).
   Prefer a few draw calls; avoid heavy loops or string parsing in `render`.
-- **Parse pushed data ONCE, not in `render`.** If the PC pushes a blob (like the
-  Stocks chart), parse it in a `text: on_value:` lambda into `globals`, and have
-  `render` only read those globals. See `pages/stocks/page.yaml`.
+- **Parse pushed data ONCE, not in `render`.** If the PC pushes a blob, parse it in
+  a `text: on_value:` lambda into `globals`, and have `render` only read those
+  globals. (But see below — a page that needs a data feed usually shouldn't be a
+  page at all.)
+- **Prefer a PC stream source over a new page.** A flashed page costs the ESP8266
+  RAM *forever*, whether or not it's the active one: its `requires:` globals live in
+  `.bss` and there's no way to unload them (ESPHome has no component teardown, so
+  `mode` switching isn't isolation). A PC-rendered source costs the device nothing
+  per-source and can use real fonts and real data structures. Add a local page only
+  when it must work with the PC off. See the architecture note in CLAUDE.md and the
+  examples in `client/` (`stream_stocks.py` is the ported version of a page that
+  used to live here).
 - **Don't write flash on every update.** For values the PC updates frequently, set
   `restore_value: false` (default) on the template entity — otherwise you wear out
   the flash.

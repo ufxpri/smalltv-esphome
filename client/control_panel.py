@@ -13,7 +13,6 @@ import glob
 import io
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -26,15 +25,20 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import config as cfg_mod  # noqa: E402
 import stream  # noqa: E402
+from smalltv_stream import TELEM_DIR as TELEM  # noqa: E402
 
-HOST = sys.argv[1] if len(sys.argv) > 1 else "smalltv-ultra.local"
-GIFDIR = os.path.join(HERE, "gifs")
-TELEM = "/tmp/smalltv"
-MODE = TELEM + "/mode.json"
+_ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
+# The panel is the settings UI, so the saved config is the source of truth for
+# which device to talk to; an explicit argv host still wins for one-off runs.
+HOST = _ARGS[0] if _ARGS else cfg_mod.load()["device_ip"]
+NO_BROWSER = "--no-browser" in sys.argv     # the widget launches us at login
+GIFDIR = stream.gif_dir()
+MODE = os.path.join(TELEM, "mode.json")
 PORT = 8787
-SCRIPT_TO_KEY = {"smalltv_stream.py": "furnace", "stream_gif.py": "stickers",
-                 "stream_video.py": "video"}
+# Derived from stream.SOURCES so a new source only has to be registered once.
+SCRIPT_TO_KEY = {v: k for k, v in stream.SOURCES.items()}
 _thumbs = {}
 STATE = {"online": False, "current": None, "heap": None, "rssi": None, "uptime": None, "host": HOST}
 LOCK = threading.Lock()
@@ -50,6 +54,7 @@ h1{font-size:17px;font-weight:600;margin:0 0 3px}
 .src{border:0;border-radius:14px;background:#22242b;color:#e7e2da;font-size:16px;padding:18px 0;cursor:pointer;transition:.15s;font-weight:500}
 .src:hover{filter:brightness(1.15)}.src.on{color:#fff;box-shadow:0 0 0 2px #fff3 inset}
 .src[data-k=furnace].on{background:#c0552f}.src[data-k=stickers].on{background:#3a7d5d}
+.src[data-k=stocks].on{background:#2f7d4f}.src[data-k=sectors].on{background:#7d5a2f}
 .src[data-k=video].on{background:#3a5a9d}.src[data-k=off].on{background:#555a63}
 .mon{margin:18px 0 4px;background:#17181d;border-radius:16px;padding:14px;display:flex;gap:14px;align-items:center}
 .screen{position:relative;width:160px;height:160px;flex:none;border-radius:12px;overflow:hidden;background:#000}
@@ -68,11 +73,17 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
 .seg button{border:0;border-radius:10px;background:#22242b;color:#e7e2da;padding:9px 14px;cursor:pointer;font-size:13px}
 .seg button.on{background:#3a5a9d;color:#fff}
 .seg label{font-size:13px;color:#9aa4b0;margin-left:auto;display:flex;gap:6px;align-items:center;cursor:pointer}
+.seg input[type=text]{flex:1;border:0;border-radius:10px;background:#22242b;color:#e7e2da;padding:9px 12px;font-size:13px;font-family:ui-monospace,monospace}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.chip{background:#22242b;border-radius:8px;padding:6px 8px 6px 11px;font-size:13px;font-family:ui-monospace,monospace;display:flex;gap:7px;align-items:center}
+.chip b{color:#7c8b99;cursor:pointer;font-weight:400}.chip b:hover{color:#ff6b6b}
 </style></head><body><div class=wrap>
 <h1>SmallTV 컨트롤</h1><div id=status><span class=dot>●</span> …</div>
 <div class=grid>
  <button class=src data-k=furnace onclick="sw('furnace')">🔥 용광로</button>
  <button class=src data-k=stickers onclick="sw('stickers')">😺 스티커</button>
+ <button class=src data-k=stocks onclick="sw('stocks')">📈 주식</button>
+ <button class=src data-k=sectors onclick="sw('sectors')">🗺️ 섹터</button>
  <button class=src data-k=video onclick="vid()">🎥 영상</button>
  <button class=src data-k=off onclick="sw('off')">⏻ 끄기</button>
 </div>
@@ -92,8 +103,19 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
  <button id=b8 onclick="cm(8)">8bit · 332</button>
  <label><input type=checkbox id=dith onchange="cm()"> 디더링</label>
 </div>
+<div class=sec>주식 티커 — 2개 이상이면 순환합니다</div>
+<div class=chips id=chips></div>
+<div class=seg>
+ <input id=tk type=text spellcheck=false placeholder="AAPL / 005930.KS / BTC-USD">
+ <button onclick="addtk()">추가</button>
+</div>
 <div class=sec>스티커 — 클릭하면 그 스티커만 재생</div>
 <div class=thumbs id=th></div>
+<div class=sec>기기 주소 — IP 또는 호스트명</div>
+<div class=seg>
+ <input id=dev type=text spellcheck=false placeholder="192.168.0.10">
+ <button onclick="setdev()">저장</button>
+</div>
 </div><script>
 const bv=document.getElementById('bv');
 async function post(u){await fetch(u,{method:'POST'})}
@@ -101,6 +123,16 @@ function sw(k){post('/switch?src='+k);mark(k)}
 function bri(v){post('/brightness?v='+v)}
 function vid(){let p=prompt('재생할 영상/움짤 파일 경로');if(p){post('/video?path='+encodeURIComponent(p));mark('video')}}
 function pick(n){post('/pick?name='+n);mark('stickers')}
+function setdev(){let v=document.getElementById('dev').value.trim();if(v)post('/device?ip='+encodeURIComponent(v))}
+// TK is client-owned after the first load: every edit posts immediately, so
+// re-syncing it on each poll would only race the user mid-edit.
+let TK=[];
+function rendertk(){document.getElementById('chips').innerHTML=
+ TK.map((t,i)=>'<span class=chip>'+t+'<b onclick="deltk('+i+')">×</b></span>').join('')}
+function savetk(){rendertk();post('/tickers?v='+encodeURIComponent(TK.join(',')))}
+function addtk(){let e=document.getElementById('tk'),v=e.value.trim().toUpperCase();
+ if(v&&!TK.includes(v)){TK.push(v);e.value='';savetk()}}
+function deltk(i){TK.splice(i,1);savetk()}
 function mark(k){document.querySelectorAll('.src').forEach(b=>b.classList.toggle('on',b.dataset.k===k))}
 let CB=16,DI=false;
 function cm(bits){if(bits!==undefined)CB=bits;DI=document.getElementById('dith').checked;post('/colormode?bits='+CB+'&dither='+(DI?1:0));markcm()}
@@ -112,6 +144,8 @@ async function tick(){try{let s=await(await fetch('/status')).json();
  heap.textContent=s.heap?((s.heap/1024).toFixed(1)+' KB'):'—';
  rssi.textContent=s.rssi!=null?(Math.round(s.rssi)+' dBm'):'—';
  uptime.textContent=fmt(s.uptime);
+ let dv=document.getElementById('dev');
+ if(document.activeElement!==dv)dv.value=s.host;   // don't fight the user mid-edit
  CB=s.bits||16;DI=!!s.dither;document.getElementById('dith').checked=DI;markcm()}catch(e){}}
 function drawHeat(t){let c=document.getElementById('heat'),x=c.getContext('2d');x.clearRect(0,0,240,240);
  if(!t.grid||!document.getElementById('heaton').checked)return;
@@ -125,6 +159,8 @@ async function mon(){document.getElementById('mirror').src='/frame.jpg?'+Date.no
  }catch(e){}}
 async function thumbs(){let n=await(await fetch('/stickers')).json();
  th.innerHTML=n.map(x=>'<img src="/thumb?name='+x+'" onclick="pick(\''+x+'\')">').join('')}
+document.getElementById('tk').addEventListener('keydown',e=>{if(e.key=='Enter')addtk()});
+fetch('/status').then(r=>r.json()).then(s=>{TK=s.tickers||[];rendertk()});
 thumbs();tick();setInterval(tick,3000);setInterval(mon,250);
 </script></body></html>"""
 
@@ -137,8 +173,31 @@ def dev_get(path):
         return None
 
 
+def set_tickers(csv):
+    """Persist the stocks rotation list. Returns the saved list."""
+    syms = [t.strip().upper() for t in (csv or "").split(",") if t.strip()]
+    c = cfg_mod.load()
+    c["tickers"] = syms or ["AAPL"]
+    cfg_mod.save(c)
+    return c["tickers"]
+
+
+def set_host(ip):
+    """Point the panel at a different device and persist it for the widget."""
+    global HOST
+    ip = (ip or "").strip()
+    if not ip or ip == HOST:
+        return
+    HOST = ip
+    c = cfg_mod.load()
+    c["device_ip"] = ip
+    cfg_mod.save(c)
+    with LOCK:      # drop readings from the old device rather than show them as this one's
+        STATE.update(host=ip, online=False, uptime=None, heap=None, rssi=None)
+
+
 def telem_fresh():
-    d = read_file(TELEM + "/stat.json")
+    d = read_file(os.path.join(TELEM, "stat.json"))
     try:
         return d is not None and time.time() - json.loads(d).get("ts", 0) < 3
     except Exception:
@@ -206,14 +265,15 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             st.setdefault("bits", 16)
             st.setdefault("dither", False)
+            st["tickers"] = cfg_mod.load()["tickers"]
             self._send(200, "application/json", json.dumps(st).encode())
         elif p == "/telemetry":
-            self._send(200, "application/json", read_file(TELEM + "/stat.json") or b"{}")
+            self._send(200, "application/json", read_file(os.path.join(TELEM, "stat.json")) or b"{}")
         elif p == "/frame.jpg":
-            img = read_file(TELEM + "/frame.jpg")
+            img = read_file(os.path.join(TELEM, "frame.jpg"))
             self._send(200, "image/jpeg", img) if img else self._send(404, "text/plain", b"")
         elif p == "/stickers":
-            names = [os.path.basename(x) for x in sorted(glob.glob(GIFDIR + "/*.gif"))]
+            names = [os.path.basename(x) for x in sorted(glob.glob(os.path.join(GIFDIR, "*.gif")))]
             self._send(200, "application/json", json.dumps(names).encode())
         elif p == "/thumb":
             try:
@@ -229,19 +289,27 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/switch":
             src = qs.get("src", [""])[0]
             stream.stop_all()
-            if src in ("furnace", "stickers"):
-                stream.start(src, [])
+            if src == "stocks":
+                c = cfg_mod.load()
+                stream.start(src, [*c["tickers"], "--rotate", str(c["ticker_rotate"])],
+                             host=HOST)
+            elif src in stream.SOURCES and src != "video":   # video needs a path
+                stream.start(src, [], host=HOST)
+        elif p == "/device":
+            set_host(qs.get("ip", [""])[0])
+        elif p == "/tickers":
+            set_tickers(qs.get("v", [""])[0])
         elif p == "/video":
             path = qs.get("path", [""])[0]
             if path:
                 stream.stop_all()
-                stream.start("video", [path])
+                stream.start("video", [path], host=HOST)
         elif p == "/pick":
             name = qs.get("name", [""])[0]
             stream.stop_all()
-            subprocess.Popen([stream.PY, os.path.join(HERE, "stream_gif.py"), "--pick", name],
-                             start_new_session=True, cwd=HERE,
-                             env={**os.environ, "SMALLTV_TELEMETRY": "1"})
+            # via stream.start so the detach flags stay in one place (start_new_session
+            # is POSIX-only; Windows needs creationflags instead)
+            stream.start("stickers", [GIFDIR, "--pick", name], host=HOST)
         elif p == "/brightness":
             v = int(qs.get("v", ["70"])[0])
             threading.Thread(target=dev_post,
@@ -264,11 +332,16 @@ def dev_post(path):
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")   # cp949 consoles can't encode our logs
+    except Exception:
+        pass
     threading.Thread(target=poller, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"control panel: {url}  (device {HOST})", flush=True)
-    threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    if not NO_BROWSER:      # the widget starts us at login; don't pop a tab every boot
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     srv.serve_forever()
 
 

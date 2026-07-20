@@ -5,14 +5,15 @@ colour space we can drop to save bandwidth.
 
     python gradient_test.py [device_ip] [--dither]
 """
+import os
 import sys
 import time
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from smalltv_stream import Streamer, to565   # noqa
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from smalltv_stream import Streamer, to565, truetype   # noqa
 
 HOST = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "smalltv-ultra.local"
 DITHER = "--dither" in sys.argv
@@ -44,12 +45,8 @@ def quantize(base, levels):
 def to_frame(rgb, levels):
     im = Image.fromarray(rgb)
     d = ImageDraw.Draw(im)
-    try:
-        f = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 30)
-    except Exception:
-        f = ImageFont.load_default()
     d.rectangle([0, 0, W, 40], fill=(0, 0, 0))
-    d.text((10, 5), f"levels/ch: {levels}", font=f, fill=(255, 255, 255))
+    d.text((10, 5), f"levels/ch: {levels}", font=truetype(30), fill=(255, 255, 255))
     return to565(im)
 
 

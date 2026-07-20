@@ -13,8 +13,19 @@ a = Analysis(
     ["../smalltv_widget.py"],
     pathex=[".."],                       # so `smalltv` and `widget` are importable
     binaries=[],
+    # No gifs/ here on purpose: stickers are user content, and baking them in
+    # would mean rebuilding the exe to add one. A frozen build reads them from
+    # the config dir instead — see stream.gif_dir().
     datas=[],
-    hiddenimports=["smalltv", "widget", "pystray", "PIL", "psutil"],
+    # The panel and the stream sources aren't imported by the widget — they are
+    # re-entered through `smalltv_widget.py --run <script>` (see stream.command),
+    # so name them explicitly or PyInstaller won't bundle them.
+    hiddenimports=[
+        "smalltv", "widget", "config", "stream", "marketdata",
+        "control_panel", "smalltv_stream",
+        "stream_stocks", "stream_sectors", "stream_gif", "stream_video",
+        "pystray", "PIL", "psutil", "numpy",
+    ],
     hookspath=[],
     runtime_hooks=[],
     excludes=[],

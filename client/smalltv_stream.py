@@ -12,6 +12,7 @@ device falls back to its local clock page.
 Protocol per tile: [u16 x, y, w, h  big-endian][w*h*2 bytes RGB565 big-endian].
 A zero-size header (0,0,0,0) is a heartbeat that keeps the stream "active".
 """
+import functools
 import io
 import json
 import math
@@ -19,13 +20,17 @@ import os
 import socket
 import struct
 import sys
+import tempfile
 import time
 
 import numpy as np
 import psutil
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-TELEM_DIR = "/tmp/smalltv"
+# Shared scratch dir for telemetry + live mode control. Must resolve to the same
+# path for every process in the stack (streamers write, the panel reads), so it
+# is derived rather than hardcoded: /tmp/smalltv on Mac, %TEMP%\smalltv on Windows.
+TELEM_DIR = os.path.join(tempfile.gettempdir(), "smalltv")
 
 
 class Telemetry:
@@ -69,7 +74,7 @@ class Telemetry:
             f.write(data)
         os.replace(tmp, path)
 
-HOST = sys.argv[1] if len(sys.argv) > 1 else "smalltv-ultra.local"
+DEFAULT_HOST = "smalltv-ultra.local"
 PORT = 6789
 W = H = 240
 SS = 2                       # supersample factor for anti-aliasing
@@ -78,14 +83,52 @@ TW, TH = 12, 12              # tile grid — small patches fit motion tightly (m
 FPS_MIN, FPS_MAX = 2, 12     # dynamic frame rate: calm when idle, frantic when busy
 CLAUDE = (217, 119, 87)      # Anthropic coral
 
-_FONT = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+# First font that exists wins. All of these carry Hangul, which the status
+# readouts need; load_default() is a last-resort bitmap face that cannot render
+# it at all, so a miss here shows as tofu rather than a crash.
+FONT_CANDIDATES = [
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",                   # macOS
+    "C:/Windows/Fonts/malgun.ttf",                                  # Windows
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",       # Linux
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+]
+
+
+def find_font():
+    for p in FONT_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def resolve_host(positional=None):
+    """Which device a source should stream to.
+
+    Sources disagree on argv order (the furnace takes a host first, stickers a
+    gif dir, stocks a ticker), so a launcher can't pass the host positionally
+    in a uniform way. SMALLTV_HOST is that uniform channel; an explicit
+    positional host still wins for hand-run commands.
+    """
+    return positional or os.environ.get("SMALLTV_HOST") or DEFAULT_HOST
+
+
+_FONT = find_font()
+
+
+@functools.lru_cache(maxsize=32)
+def truetype(px):
+    """Font at an exact pixel size."""
+    if _FONT:
+        try:
+            return ImageFont.truetype(_FONT, px)
+        except Exception:
+            pass
+    return ImageFont.load_default()
 
 
 def font(sz):
-    try:
-        return ImageFont.truetype(_FONT, sz * SS)
-    except Exception:
-        return ImageFont.load_default()
+    """Font for the supersampled canvas — `sz` is in final 240x240 units."""
+    return truetype(sz * SS)
 
 
 # fire palette lookup: intensity 0..255 -> (r,g,b), stoked hotter with `load`
@@ -354,7 +397,8 @@ class Streamer:
 
 
 def main():
-    s = Streamer(HOST, PORT)
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    s = Streamer(resolve_host(args[0] if args else None), PORT)
     psutil.cpu_percent()
     while True:
         try:

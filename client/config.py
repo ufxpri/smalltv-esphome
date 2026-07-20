@@ -1,4 +1,8 @@
-"""Persistent config for the SmallTV widget.
+"""Persistent config, shared by the tray widget and the control panel.
+
+The widget needs `device_ip` to launch the panel against the right device; the
+panel is where that value is actually edited. Both import this module, so it
+sits next to control_panel.py rather than inside the widget package.
 
 Stored as JSON in the per-user app-data dir:
   Windows: %APPDATA%\\SmallTVWidget\\config.json
@@ -13,30 +17,14 @@ from pathlib import Path
 
 APP_NAME = "SmallTVWidget"
 
+# device_ip stays an address rather than `smalltv-ultra.local`: the hostname is
+# DHCP-stable but mDNS does not resolve on every box (it fails on Windows here),
+# so a literal address is the safer first-run default. Edit it in the panel.
 DEFAULTS = {
     "device_ip": "192.168.219.112",
-    "modes": ["Clock", "Stocks", "Sectors", "Worker", "Off"],
-    "brightness": 0.8,
     "start_at_login": False,
-    "stock": {
-        "ticker": "AAPL",
-        "interval": 6.0,
-        "autostart": False,
-    },
-    "pcstats": {
-        "title": "PC Monitor",
-        "interval": 1.0,
-        "autostart": False,
-    },
-    "sectors": {
-        "interval": 30.0,
-        "autostart": False,
-    },
-    "rotation": {
-        "enabled": False,
-        "interval": 10.0,
-        "pages": ["Clock", "Stocks", "Sectors", "Worker"],
-    },
+    "tickers": ["AAPL"],        # the stocks source cycles these
+    "ticker_rotate": 15.0,      # seconds per ticker
 }
 
 
@@ -67,13 +55,20 @@ def _deep_merge(base: dict, over: dict) -> dict:
 
 
 def load() -> dict:
-    """Return config with defaults filled in for any missing keys."""
+    """Config with defaults filled in for missing keys, and unknown keys dropped.
+
+    Dropping is deliberate: an existing config.json still carries the page and
+    bridge settings (modes, rotation, stock, pcstats, sectors) that died with the
+    device pages. Keeping them would leave a file that reads like those features
+    are still wired up. They are rewritten out on the next save().
+    """
     try:
         with open(config_path(), "r", encoding="utf-8") as f:
             user = json.load(f)
     except (FileNotFoundError, ValueError):
         user = {}
-    return _deep_merge(DEFAULTS, user)
+    merged = _deep_merge(DEFAULTS, user)
+    return {k: merged[k] for k in DEFAULTS}
 
 
 def save(cfg: dict) -> None:

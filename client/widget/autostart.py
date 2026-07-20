@@ -9,7 +9,7 @@ All three are per-user (no admin/root needed).
 import sys
 from pathlib import Path
 
-from .config import APP_NAME
+from config import APP_NAME
 from .launch import self_command
 
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
