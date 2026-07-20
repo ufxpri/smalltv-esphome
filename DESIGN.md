@@ -23,9 +23,12 @@ y232 │                           │
 - **Start real content at y ≥ 8.** The top 6 px belongs to the dispatcher's
   health bar and can light up at any time — don't put anything you care about
   under it.
-- Keep a **~8 px margin** on the left/right/bottom edges. The existing pages use
-  either an `8 px` (Stocks) or `14 px` (PC Info) gutter — match the page you're
-  editing; don't mix within a page.
+- **PC stream sources own the full 240×240.** While a stream client is connected
+  the local page render is suspended, so the dispatcher never draws its health
+  bar — a source can use y 0–7. The flip side: that warning is invisible while
+  streaming, so watch `/sensor/free_heap` (the panel's monitor shows it).
+- Keep a **~8 px margin** on the left/right/bottom edges. Match the gutter of the
+  screen you're editing; don't mix within one.
 
 ## Type
 Three shared fonts live in `core.yaml` (Roboto). Use these unless you have a
@@ -75,21 +78,21 @@ A small, consistent palette. Reuse these — don't invent a new blue per page.
 reuse the semantic reds/greens for decoration.
 
 ## Layout patterns (reuse these)
-**Header + divider** (PC Info): a `font_med` title at the top-left, a `0x2A3542`
-hairline a few px below it, then content. Clean way to label a screen.
+**Header + divider** (`client/stream_sectors.py`): a title at the top-left, a
+`0x2A3542` hairline a few px below it, then content. Clean way to label a screen.
 ```cpp
 it.printf(14, 14, id(font_med), Color(0xFFB000), TextAlign::TOP_LEFT, "%s", title);
 it.line(14, 46, 226, 46, Color(0x2A3542));
 ```
 
-**Corner metadata** (Stocks): primary label top-left, primary value top-right,
+**Corner metadata** (`client/stream_stocks.py`): primary label top-left, primary value top-right,
 delta under the value, a small status badge on the opposite corner. Corners read
 well because the eye isn't hunting a centered block.
 
 **Hero + progress** (Clock): one big centered number, a secondary line under it,
 and a thin progress bar with a leading dot near the bottom edge (`y ≈ 198`).
 
-**Pill badge** (Stocks session): a `filled_rectangle` behind centered
+**Pill badge** (`client/stream_stocks.py` session badge): a `filled_rectangle` behind centered
 `font_small` text. Fixed width per label (don't measure text in the lambda):
 ```cpp
 it.filled_rectangle(8, 36, bw, 18, bg);           // bg = a semantic color
@@ -115,8 +118,7 @@ The fractional framebuffer **re-runs the page render lambda ~30× per frame**
   by looping over rows. Shapes + text + a few fills is the whole toolbox.
 - **Precompute; don't parse in the render.** Do heavy work (decode, math,
   string building) once in an `on_value:`/`interval:` and stash the result in a
-  `global`; the render just reads it. Stocks' `chart_data` → `ch_*[]` globals is
-  the reference pattern.
+  `global`; the render just reads it.
 - **Keep the lambda short.** It runs 30× — every `printf` and loop iteration is
   paid 30 times. Aim to keep a single render pass well under ~50 ms (the golden
   rule); watch the amber health bar as a live "too slow" signal.

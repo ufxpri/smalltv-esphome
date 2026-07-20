@@ -21,19 +21,40 @@ rich, self-updating info display.
   backlight PWM `GPIO5` (inverted).
 - **Serial header**: left edge of board; no DTR/RTS auto-reset. UART adapter = CH340.
 
-## Repo layout (page-based)
+## Architecture — lean local pages + PC-rendered streaming
+Two ways to put something on the screen, and the split is deliberate:
+- **Local pages** run on the ESP8266. Kept to a **minimum (clock, weather)** so the
+  device shows something useful with the PC off, and so heap stays fat enough for
+  streaming + OTA. Every flashed page costs RAM *permanently* — an inactive page's
+  `requires:` globals sit in `.bss` forever (Stocks alone was 2.5 KB of `int[64]`
+  chart buffers, a third of the free heap it had, even while showing the clock).
+- **PC stream sources** render a 240×240 image on the PC and push changed tiles to
+  the driver's TCP server. Cost to the device is **fixed, not per-source**, so this
+  is where anything rich or data-hungry belongs. Stocks/sectors/furnace live here.
+
+**Adding a screen? Default to a PC source.** Only add a local page if it must work
+with the PC off. There is no way to unload a page's memory at runtime — ESPHome has
+no component teardown, so `mode` switching is *not* isolation.
+
+## Repo layout
 - `core.yaml` — shared base (wifi/ota/api/web/safe_mode, display plumbing, fonts,
-  backlight, wifi-gated refresh interval). No `display:` or `mode` select — those
-  are GENERATED. Don't add page-specific stuff here.
-- `pages/<id>/page.yaml` — one screen each (metadata + `requires:` deps + `render:`
-  drawing code). See `pages/PAGE_SCHEMA.md`. Current: clock, stocks, pcinfo, weather.
+  backlight, wifi-gated refresh interval, `free_heap` sensor). No `display:` or
+  `mode` select — those are GENERATED. Don't add page-specific stuff here.
+- `pages/<id>/page.yaml` — one local screen each (metadata + `requires:` deps +
+  `render:` drawing code). See `pages/PAGE_SCHEMA.md`. Current: **clock, weather**.
 - `tools/build.py` — composes selected pages + core, **checks the RAM/Flash budget**,
   compiles, uploads. The single entry point for building.
-- `client/` — dependency-free Python lib (`smalltv`) to drive the device from a PC,
-  plus `examples/` (stock_bridge, pc_stats). REST-based; works from curl too.
-  `client/widget/` — cross-platform (Mac/Windows) tray/menu-bar app over the same
-  REST calls (page switch, brightness, live bridges, start-at-login, settings);
-  `smalltv_widget.py` is its entry point, `build/` packages it into a .exe/.app.
+- `client/` — the PC side, cross-platform (Mac/Windows). See `client/README.md`.
+  - `smalltv/` — dependency-free REST lib for the device's own entities.
+  - `smalltv_stream.py` — the streaming library (`Streamer`, `resolve_host`, fonts)
+    and the furnace source; `stream_stocks/sectors/gif/video.py` — other sources;
+    `marketdata.py` — shared Yahoo fetch layer.
+  - `stream.py` — runs exactly one source at a time (the device takes one client).
+  - `control_panel.py` — **the UI**: local web page (`:8787`) for sources, brightness,
+    tickers, device address, and a live monitor. Also the settings page.
+  - `widget/` + `smalltv_widget.py` — tray app that only supervises the panel
+    (start/stop, status, open, start-at-login); `build/` packages it to .exe/.app.
+  - `config.py` — shared config for the widget + panel.
 - `components/st7789v/` — local patched fractional-framebuffer ST7789 driver (INVON).
 - `costs.json` — measured per-page RAM/Flash cost (for `build.py budget`).
 - `secrets.yaml` — creds (**git-ignored**; copy from `secrets.yaml.example`).
@@ -112,3 +133,12 @@ RGB565 tiles to `st7789v`'s TCP server (`stream_port`, `client/smalltv_stream.py
 The device stays a normal local-page display until a client connects, then blits the
 stream; on disconnect it falls back to the local page. Keep the flashed page set lean
 when streaming is enabled.
+
+**Resolved 2026-07-17 — the page set was cut to clock+weather and stocks/sectors/worker
+were re-implemented as PC sources.** Measured on the lean build: **free heap ~23 KB with
+the stream server running** (vs ~7.6 KB on the full page set, which is what bricked the
+OTA). The old fear "streaming needs clock-only" was really "streaming needs a lean page
+set" — there is now comfortable margin. `tools/build.py` still sets `stream_port: 6789`
+unconditionally, which is safe at this page count but would be dangerous again if the
+local set grew back; the RAM% gate cannot see it (the server's cost is runtime heap, not
+static RAM), so heap is the number to watch.

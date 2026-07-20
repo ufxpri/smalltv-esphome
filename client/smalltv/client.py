@@ -4,12 +4,14 @@ ESPHome firmware. Talks to the device's web_server REST API (port 80).
     from smalltv import SmallTV
     tv = SmallTV("192.168.219.112")
     tv.set_mode("Clock")
-    tv.lines(title="Hi", l1="from PC")     # PC Info page
-    tv.stock(ticker="AAPL", price="192.34", change="+1.2%")  # Stocks page
     tv.backlight(0.5)
+    tv.get_sensor("free_heap")
 
 Every setter maps to one REST call, so anything here also works from curl:
     curl -X POST 'http://<ip>/select/mode/set?option=Clock'
+
+Scope: the device's own entities only. Rich screens are rendered on the PC and
+pushed over the framebuffer stream instead — see client/stream.py.
 """
 import json
 import urllib.parse
@@ -54,9 +56,14 @@ class SmallTV:
     def switch(self, entity_id, on=True):
         self._req("POST", f"/switch/{entity_id}/turn_{'on' if on else 'off'}")
 
+    def get_sensor(self, entity_id):
+        """e.g. get_sensor("free_heap") / ("uptime") / ("wifi_signal")."""
+        return self._get_json(f"/sensor/{entity_id}").get("value")
+
     # ---- high level ----
     def set_mode(self, mode):
-        """Switch the active page: Clock / Stocks / PC Info / Off (must be built in)."""
+        """Switch the active local page. Only pages built into the running
+        firmware are valid — currently Clock / Weather / Off."""
         self.set_select("mode", mode)
 
     def get_mode(self):
@@ -72,26 +79,3 @@ class SmallTV:
             return True
         except Exception:
             return False
-
-    # ---- PC Info page ----
-    def lines(self, title=None, l1=None, l2=None, l3=None, switch=True):
-        if switch:
-            self.set_mode("PC Info")
-        for eid, val in (("title", title), ("line1", l1), ("line2", l2), ("line3", l3)):
-            if val is not None:
-                self.set_text(eid, val)
-
-    def message(self, title, sub=""):
-        self.lines(title=title, l1=sub, l2="", l3="")
-
-    # ---- Stocks page ----
-    def stock(self, price=None, change=None, ticker=None):
-        if ticker is not None:
-            self.set_text("ticker", ticker)
-        if price is not None:
-            self.set_text("stock_price", str(price))
-        if change is not None:
-            self.set_text("stock_change", str(change))
-
-    def get_ticker(self):
-        return self.get_text("ticker")

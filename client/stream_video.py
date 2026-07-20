@@ -7,14 +7,15 @@ Pass `--debug` to outline each transmitted patch in cycling colours.
 
     python stream_video.py <file> [device_ip] [loops] [--debug]
 """
+import os
 import subprocess
 import sys
 import time
 
 import numpy as np
 
-sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from smalltv_stream import Streamer   # noqa
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from smalltv_stream import Streamer, resolve_host   # noqa
 
 W = H = 240
 EXTRACT_FPS = 15
@@ -42,7 +43,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     debug = "--debug" in sys.argv
     path = args[0]
-    host = args[1] if len(args) > 1 else "smalltv-ultra.local"
+    host = resolve_host(args[1] if len(args) > 1 else None)
     loops = int(args[2]) if len(args) > 2 else 3
 
     print("decoding video ...", flush=True)

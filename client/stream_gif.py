@@ -8,16 +8,16 @@ pipe can't keep up). Each sticker shows for DISPLAY_SECS, looping, then the next
     python stream_gif.py [gif_dir] [device_ip]
 """
 import glob
+import os
 import sys
 import time
 
-import numpy as np
 from PIL import Image
 
-sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from smalltv_stream import Streamer, to565   # noqa
-
-DEFAULT_GIF_DIR = __file__.rsplit("/", 1)[0] + "/gifs"
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import stream                                              # noqa: E402
+from smalltv_stream import Streamer, resolve_host, to565   # noqa
 W = H = 240
 DISPLAY_SECS = 4.0
 BG = (0, 0, 0)          # composite transparent stickers onto black
@@ -62,16 +62,16 @@ def main():
         j = argv.index("--pick")
         pick = argv[j + 1] if j + 1 < len(argv) else None
         del argv[j:j + 2]
-    gif_dir = argv[0] if argv else DEFAULT_GIF_DIR
-    host = argv[1] if len(argv) > 1 else "smalltv-ultra.local"
+    gif_dir = argv[0] if argv else stream.gif_dir()
+    host = resolve_host(argv[1] if len(argv) > 1 else None)
 
-    paths = sorted(glob.glob(gif_dir + "/*.gif"))
+    paths = sorted(glob.glob(os.path.join(gif_dir, "*.gif")))
     if pick:
-        paths = [p for p in paths if pick in p.rsplit("/", 1)[-1]]
+        paths = [p for p in paths if pick in os.path.basename(p)]
     if not paths:
         sys.exit(f"no GIFs in {gif_dir}" + (f" matching '{pick}'" if pick else ""))
     print(f"loading {len(paths)} GIFs ...", flush=True)
-    gifs = [(p.rsplit("/", 1)[-1], load_gif(p)) for p in paths]
+    gifs = [(os.path.basename(p), load_gif(p)) for p in paths]
 
     s = Streamer(host, 6789)
     s.refresh_k = 4          # gifs already repaint most tiles; keep sweep light for heap headroom
