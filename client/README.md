@@ -24,6 +24,11 @@ address, and watch a live monitor (mirror of the screen, dirty-patch heatmap,
 fps / heap / RSSI). `smalltv_widget.py` is a tray app that just keeps this
 server running and gives you a menu-bar entry to open it.
 
+Global settings (device / brightness / colour depth) sit at the top; below them
+the source picker swaps in the settings pane for whichever source you select.
+Nothing takes effect while you edit — picking a source only selects it, and the
+change is applied when you press **저장** (globals) or **전송** (source).
+
 ## Stream sources
 
 | source | what it shows | needs |
