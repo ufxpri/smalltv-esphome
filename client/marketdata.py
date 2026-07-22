@@ -27,6 +27,7 @@ SECTORS = [("XLK", "Tech"), ("XLF", "Fin"), ("XLV", "Health"), ("XLY", "ConsD"),
 class Quote:
     """One symbol's intraday state."""
     symbol: str
+    name: str              # human-readable label from Yahoo (shortName), for the header
     candles: list          # [(open, high, low, close)], oldest first
     vols: list             # per-candle volume, aligned to `candles`
     rsi: list              # per-candle RSI(14); None where lookback is short
@@ -145,8 +146,9 @@ def fetch_quote(symbol, n=N):
     def as_pct(v):
         return (v - prev) / prev * 100 if (v is not None and prev) else None
 
-    return Quote(symbol=symbol, candles=candles, vols=[v for *_, v in rows], rsi=rsi,
-                 price=price, prev_close=prev, pct=as_pct(price) or 0.0,
+    name = meta.get("shortName") or meta.get("longName") or symbol
+    return Quote(symbol=symbol, name=name, candles=candles, vols=[v for *_, v in rows],
+                 rsi=rsi, price=price, prev_close=prev, pct=as_pct(price) or 0.0,
                  session=market_session(meta), high_pct=as_pct(high), low_pct=as_pct(low))
 
 

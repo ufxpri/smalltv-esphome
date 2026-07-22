@@ -40,9 +40,24 @@ RY, RH = 194, 38          # RSI
 BADGES = {"REGULAR": ("LIVE", (0, 162, 75)), "PRE": ("PRE", (229, 148, 0)),
           "POST": ("AFTER", (59, 107, 229)), "CLOSED": ("CLOSED", (90, 100, 114))}
 
+# Readable header labels for the tickers the control panel offers as presets.
+# Everything else falls back to Yahoo's shortName (Quote.name), then the symbol.
+NAMES = {"^KS11": "코스피", "005930.KS": "삼성전자", "000660.KS": "SK하이닉스",
+         "^IXIC": "나스닥", "^GSPC": "S&P 500", "BTC-USD": "비트코인"}
+
 
 def _s(v):
     return int(round(v * SS))
+
+
+def _clip(d, text, f, max_w):
+    """Trim `text` (final-px width budget `max_w`) with an ellipsis so a long name
+    never runs into the price on the other side of the header."""
+    if d.textlength(text, font=f) / SS <= max_w:
+        return text
+    while text and d.textlength(text + "…", font=f) / SS > max_w:
+        text = text[:-1]
+    return text + "…" if text else text
 
 
 def _price_extent(candles, extras, wick_room=0.6):
@@ -91,19 +106,31 @@ def render(q, idx=0, total=1):
     img = Image.new("RGB", (W * SS, H * SS), BG)
     d = ImageDraw.Draw(img)
 
-    # ---- header: ticker + price, then session badge + day swing + change ----
-    d.text((_s(X0), _s(4)), q.symbol, font=font(15), fill=MUTED)
-    if total > 1:      # where we are in the ticker rotation
-        dx = X0 + d.textlength(q.symbol, font=font(15)) / SS + 8
-        for i in range(total):
-            cx = dx + i * 7
-            d.ellipse([_s(cx - 2), _s(12), _s(cx + 2), _s(16)],
-                      fill=CLAUDE if i == idx else (58, 64, 72))
-    d.text((_s(234), _s(2)), f"{q.price:,.2f}", font=font(19), fill=TEXT, anchor="ra")
+    # ---- header: readable name + raw symbol + price, then badge + day swing ----
+    price_txt = f"{q.price:,.2f}"
+    d.text((_s(234), _s(2)), price_txt, font=font(19), fill=TEXT, anchor="ra")
     d.text((_s(234), _s(30)), f"{q.pct:+.2f}%", font=font(12),
            fill=UP if q.pct >= 0 else DOWN, anchor="ra")
 
+    # The name reads; the symbol identifies. Line 1 is the readable name (big),
+    # clipped to whatever the price leaves; the raw symbol drops to line 2 beside
+    # the badge — `005930.KS` alone up top was unreadable.
+    disp = NAMES.get(q.symbol) or q.name or q.symbol
+    dots_w = (total * 7 + 6) if total > 1 else 0
+    price_w = d.textlength(price_txt, font=font(19)) / SS
+    name_max = 234 - price_w - 10 - dots_w - X0
+    disp = _clip(d, disp, font(15), max(name_max, 30))
+    d.text((_s(X0), _s(3)), disp, font=font(15), fill=TEXT)
+    if total > 1:      # rotation dots trail the name
+        nx = X0 + d.textlength(disp, font=font(15)) / SS + 8
+        for i in range(total):
+            cx = nx + i * 7
+            d.ellipse([_s(cx - 2), _s(11), _s(cx + 2), _s(15)],
+                      fill=CLAUDE if i == idx else (58, 64, 72))
+
     x = X0
+    d.text((_s(x), _s(33)), q.symbol, font=font(10), fill=MUTED)   # the raw ticker
+    x += d.textlength(q.symbol, font=font(10)) / SS + 8
     label, bg = BADGES.get(q.session, ("", None))
     if bg:
         bw = 6 + 7 * len(label)
