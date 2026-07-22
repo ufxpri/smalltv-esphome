@@ -89,6 +89,9 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .chip{background:#22242b;border-radius:8px;padding:6px 8px 6px 11px;font-size:13px;font-family:ui-monospace,monospace;display:flex;gap:7px;align-items:center}
 .chip b{color:#7c8b99;cursor:pointer;font-weight:400}.chip b:hover{color:#ff6b6b}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.presets button{border:0;border-radius:8px;background:#1b2530;color:#9fc4e0;padding:6px 11px;cursor:pointer;font-size:13px}
+.presets button:hover{background:#243444}.presets button:disabled{opacity:.4;cursor:default}
 .apply{width:100%;border:0;border-radius:12px;background:#d97757;color:#fff;font-size:15px;font-weight:600;padding:13px 0;margin-top:14px;cursor:pointer}
 .apply:hover{filter:brightness(1.1)}
 .apply.dirty::after{content:' •'}
@@ -142,6 +145,7 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
  <div class=pane data-p=stocks>
   <div class=sec>티커 — 2개 이상이면 순환합니다</div>
   <div class=chips id=chips></div>
+  <div class=presets id=presets></div>
   <div class=seg>
    <input id=tk type=text spellcheck=false placeholder="AAPL / 005930.KS / BTC-USD">
    <button onclick="addtk()">추가</button>
@@ -197,12 +201,21 @@ function sendSrc(){
   q+='&path='+encodeURIComponent(p)}
  post(q);CUR=SEL;marksel();clean('s');flash($('shint'),SEL=='off'?'중지 요청됨':'전송했습니다')}
 
+// One-click quick-adds. Yahoo symbols are opaque (^KS11, 005930.KS); the label
+// map lets both the buttons and the chips read in Korean.
+const PRESETS=[['코스피','^KS11'],['삼성전자','005930.KS'],['SK하이닉스','000660.KS'],
+ ['나스닥','^IXIC'],['S&P','^GSPC'],['비트코인','BTC-USD']];
+const LABELS=Object.fromEntries(PRESETS.map(([n,s])=>[s,n]));
 // TK / PICK are client-owned once loaded: they are only pushed on 전송, so a
 // poll must never overwrite what the user is composing.
 function rendertk(){$('chips').innerHTML=
- TK.map((t,i)=>'<span class=chip>'+t+'<b onclick="deltk('+i+')">×</b></span>').join('')}
-function addtk(){let e=$('tk'),v=e.value.trim().toUpperCase();
- if(v&&!TK.includes(v)){TK.push(v);e.value='';rendertk();dirty('s')}}
+ TK.map((t,i)=>'<span class=chip>'+(LABELS[t]?LABELS[t]+' <span style=color:#5c6773>'+t+'</span>':t)
+  +'<b onclick="deltk('+i+')">×</b></span>').join('');renderpre()}
+function renderpre(){$('presets').innerHTML=
+ PRESETS.map(([n,s])=>'<button onclick="addsym(\''+s+'\')"'+(TK.includes(s)?' disabled':'')+'>+ '+n+'</button>').join('')}
+function addsym(v){v=v.trim().toUpperCase();
+ if(v&&!TK.includes(v)){TK.push(v);rendertk();dirty('s')}}
+function addtk(){let e=$('tk');addsym(e.value);e.value=''}
 function deltk(i){TK.splice(i,1);rendertk();dirty('s')}
 function pick(n){PICK=(PICK===n?'':n);
  document.querySelectorAll('#th img').forEach(i=>i.classList.toggle('sel',i.dataset.n===PICK));

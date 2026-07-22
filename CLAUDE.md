@@ -142,3 +142,21 @@ set" — there is now comfortable margin. `tools/build.py` still sets `stream_po
 unconditionally, which is safe at this page count but would be dangerous again if the
 local set grew back; the RAM% gate cannot see it (the server's cost is runtime heap, not
 static RAM), so heap is the number to watch.
+
+**Widget rebuild/redeploy footguns (2026-07-22).** Shipping a `control_panel.py` (or any
+client) change to the *running* `.app` has two traps that both silently keep the OLD UI
+live — the build "succeeds", the widget "restarts", yet nothing changes. Verify by a
+concrete signal (page byte size, or grep the served HTML for a known-new string), never
+by "it built / it restarted":
+- **A detached panel survives `launchctl bootout`.** The panel child is spawned with
+  `start_new_session=True` (see `stream.spawn`), so it's *not* in the LaunchAgent's
+  process group. Booting out the widget leaves the old panel still holding
+  `127.0.0.1:8787`; the freshly-restarted widget then fails to rebind and the stale
+  panel keeps serving. Between stop and restart, **`pkill -f SmallTVWidget`** (or kill
+  the pid from `lsof -nP -iTCP:8787 -sTCP:LISTEN`) — `bootout` alone is not enough.
+- **PyInstaller bundles a stale `.pyc`.** A plain `--noconfirm` rebuild reused the old
+  compiled `control_panel` from `client/build/smalltv_widget/` even though the source
+  had changed, so the new `.app` still served the old page. Fix: rebuild with
+  **`--clean`** (and/or `rm -rf client/build/smalltv_widget`). The packed archive is
+  UPX-compressed, so `grep`ping the built binary for a source string is inconclusive —
+  test the running panel's output instead.
