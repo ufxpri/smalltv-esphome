@@ -25,6 +25,7 @@ DEFAULTS = {
     "start_at_login": False,
     "tickers": ["AAPL"],        # the stocks source cycles these
     "ticker_rotate": 15.0,      # seconds per ticker
+    "brightness": 70,           # backlight %; the panel shows it without waiting on the device
 }
 
 
