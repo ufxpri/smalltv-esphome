@@ -44,6 +44,15 @@ class Telemetry:
         self._recent = []                      # (time, bytes) over a short window
 
     def record(self, cur, changed_grid, blits, nbytes):
+        # Telemetry is a nice-to-have; it must never kill the stream. Its OSErrors
+        # used to surface in main()'s `except OSError` and be misreported as a
+        # device disconnect, so the source reconnect-looped forever.
+        try:
+            self._record(cur, changed_grid, blits, nbytes)
+        except Exception as e:
+            print(f"\n[telemetry] write failed: {e}")
+
+    def _record(self, cur, changed_grid, blits, nbytes):
         now = time.time()
         self._recent.append((now, nbytes))
         self._recent = [(t, b) for t, b in self._recent if now - t < 2.0]
@@ -70,7 +79,14 @@ class Telemetry:
     @staticmethod
     def _atomic(path, data, mode):
         tmp = path + ".tmp"
-        with open(tmp, mode) as f:
+        try:
+            f = open(tmp, mode)
+        except FileNotFoundError:
+            # macOS reaps untouched dirs under /var/folders/.../T, so TELEM_DIR can
+            # vanish under a long-running source. Recreate it instead of dying.
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            f = open(tmp, mode)
+        with f:
             f.write(data)
         os.replace(tmp, path)
 
