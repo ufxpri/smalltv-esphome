@@ -126,8 +126,15 @@ def spawn(script, extra, log_name, env_extra=None):
         kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS}
     else:
         kw = {"start_new_session": True}
+    # When frozen, HERE is the PyInstaller _MEIPASS extraction dir under the system
+    # temp — macOS reaps that out from under a long-running app, and Popen then dies
+    # with FileNotFoundError on the cwd alone. The frozen child re-extracts its own
+    # bundle, so a stable cwd next to the executable works just as well.
+    cwd = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else HERE
+    if not os.path.isdir(cwd):
+        cwd = None
     return subprocess.Popen(command(script, extra), stdout=log, stderr=subprocess.STDOUT,
-                            cwd=HERE, env=env, **kw)
+                            cwd=cwd, env=env, **kw)
 
 
 # ---- sources ----
