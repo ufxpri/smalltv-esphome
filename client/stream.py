@@ -122,6 +122,15 @@ def spawn(script, extra, log_name, env_extra=None):
     # cannot encode the em dash / arrows these scripts log.
     log = open(os.path.join(LOGDIR, f"{log_name}.log"), "a", encoding="utf-8")
     env = {**os.environ, **(env_extra or {})}
+    # Frozen onefile: the bootloader passes _MEIPASS2 (and _PYI_* on PyInstaller 6+)
+    # to a re-exec'd child so it reuses the parent's _MEIxxxx extraction instead of
+    # unpacking its own. That's fatal here: the widget stays up for days, macOS reaps
+    # the temp _MEI dir out from under it, and a stream child spawned afterwards
+    # inherits the now-dead path and dies at startup with "No module named 'encodings'".
+    # Drop these so every spawned child extracts a fresh, complete bundle of its own.
+    for k in ("_MEIPASS2", "_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR",
+              "_PYI_PARENT_PROCESS_LEVEL", "_PYI_SPLASH_IPC"):
+        env.pop(k, None)
     if sys.platform == "win32":
         kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS}
     else:

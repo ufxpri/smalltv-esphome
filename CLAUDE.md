@@ -160,3 +160,20 @@ by "it built / it restarted":
   **`--clean`** (and/or `rm -rf client/build/smalltv_widget`). The packed archive is
   UPX-compressed, so `grep`ping the built binary for a source string is inconclusive —
   test the running panel's output instead.
+
+**Stream child dies on a long-running widget — the reaped `_MEI` bug (2026-07-27).**
+Symptom: device + PC panel both healthy (`/status` `online:true`), but selecting a
+source does nothing — no stream child, no `:6789` connection, and `stocks.log` shows
+`ModuleNotFoundError: No module named 'encodings'` with `PYTHONHOME=/var/folders/.../_MEIxxxx`.
+Root cause: the frozen onefile bootloader hands a re-exec'd child its own extraction dir
+via env vars (`_MEIPASS2` on PyInstaller ≤5, `_PYI_ARCHIVE_FILE` / `_PYI_APPLICATION_HOME_DIR`
+on 6+) so the child *reuses* the parent's `_MEI` instead of unpacking its own. The widget
+stays up for days; macOS reaps its temp `_MEI` dir; a stream child spawned *afterwards*
+inherits the now-dead path and can't even bootstrap `encodings`. The panel survives only
+because it already had those files open. Two independent fixes, both applied:
+- **Immediate (no rebuild):** clean-restart the widget (`pkill -f SmallTVWidget` →
+  `launchctl bootstrap …`) so it extracts a fresh, complete `_MEI`.
+- **Permanent (`stream.spawn`):** strip `_MEIPASS2` / `_PYI_*` from the child env so every
+  spawned frozen child extracts its **own** `_MEI`. Verify with `lsof -p <pid> | grep _MEI` —
+  widget-worker, panel-worker, and stream-worker must show **three distinct** dirs; then
+  reaping one no longer kills the others. (No-op from source, where those vars are unset.)
