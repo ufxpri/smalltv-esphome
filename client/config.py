@@ -26,6 +26,7 @@ DEFAULTS = {
     "tickers": ["AAPL"],        # the stocks source cycles these
     "ticker_rotate": 15.0,      # seconds per ticker
     "brightness": 70,           # backlight %; the panel shows it without waiting on the device
+    "claude_gif": "",           # gif shown in the claude usage screen's box (name in gif_dir)
 }
 
 

@@ -7,25 +7,31 @@
 # Output: client/dist/SmallTVWidget(.exe)  or  client/dist/SmallTVWidget.app
 import sys
 
+from PyInstaller.utils.hooks import collect_all
+
 block_cipher = None
+
+# curl_cffi ships a bundled libcurl + cacert + cffi shims that a bare
+# hiddenimport misses; collect_all grabs its binaries/datas too.
+_cc_datas, _cc_bins, _cc_hidden = collect_all("curl_cffi")
 
 a = Analysis(
     ["../smalltv_widget.py"],
     pathex=[".."],                       # so `smalltv` and `widget` are importable
-    binaries=[],
+    binaries=_cc_bins,
     # No gifs/ here on purpose: stickers are user content, and baking them in
     # would mean rebuilding the exe to add one. A frozen build reads them from
     # the config dir instead — see stream.gif_dir().
-    datas=[],
+    datas=_cc_datas,
     # The panel and the stream sources aren't imported by the widget — they are
     # re-entered through `smalltv_widget.py --run <script>` (see stream.command),
     # so name them explicitly or PyInstaller won't bundle them.
     hiddenimports=[
-        "smalltv", "widget", "config", "stream", "marketdata",
+        "smalltv", "widget", "config", "stream", "marketdata", "claudeusage",
         "control_panel", "smalltv_stream",
-        "stream_stocks", "stream_sectors", "stream_gif", "stream_video",
+        "stream_stocks", "stream_sectors", "stream_claude", "stream_gif", "stream_video",
         "pystray", "PIL", "psutil", "numpy",
-    ],
+    ] + _cc_hidden,
     hookspath=[],
     runtime_hooks=[],
     excludes=[],

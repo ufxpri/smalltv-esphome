@@ -32,6 +32,7 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import claudeusage  # noqa: E402
 import config as cfg_mod  # noqa: E402
 import stream  # noqa: E402
 from smalltv_stream import TELEM_DIR as TELEM  # noqa: E402
@@ -65,6 +66,7 @@ h1{font-size:17px;font-weight:600;margin:0 0 3px}
 .src.on{color:#fff}
 .src[data-k=furnace].on{background:#c0552f}.src[data-k=stickers].on{background:#3a7d5d}
 .src[data-k=stocks].on{background:#2f7d4f}.src[data-k=sectors].on{background:#7d5a2f}
+.src[data-k=claude].on{background:#c0552f}
 .src[data-k=video].on{background:#3a5a9d}.src[data-k=off].on{background:#555a63}
 .mon{display:flex;gap:14px;align-items:center}
 .screen{position:relative;width:160px;height:160px;flex:none;border-radius:12px;overflow:hidden;background:#000}
@@ -80,6 +82,8 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
 .thumbs{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .thumbs img{width:100%;aspect-ratio:1;border-radius:9px;background:#22242b;cursor:pointer;border:2px solid transparent;transition:.12s}
 .thumbs img:hover{border-color:#d97757}.thumbs img.sel{border-color:#d97757}
+.thumbs .none{display:flex;align-items:center;justify-content:center;aspect-ratio:1;border-radius:9px;background:#22242b;cursor:pointer;border:2px solid transparent;font-size:11px;color:#9aa4af}
+.thumbs .none:hover{border-color:#d97757}.thumbs .none.sel{border-color:#d97757}
 .seg{display:flex;gap:8px;align-items:center}
 .seg button{border:0;border-radius:10px;background:#22242b;color:#e7e2da;padding:9px 14px;cursor:pointer;font-size:13px}
 .seg button.on{background:#3a5a9d;color:#fff}
@@ -134,12 +138,23 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
   <button class=src data-k=stickers onclick="sel('stickers')">😺 스티커</button>
   <button class=src data-k=stocks onclick="sel('stocks')">📈 주식</button>
   <button class=src data-k=sectors onclick="sel('sectors')">🗺️ 섹터</button>
+  <button class=src data-k=claude onclick="sel('claude')">🤖 사용량</button>
   <button class=src data-k=video onclick="sel('video')">🎥 영상</button>
   <button class=src data-k=off onclick="sel('off')">⏻ 끄기</button>
  </div>
 
  <div class=pane data-p=furnace><div class=sec>CPU 부하를 용광로 불꽃으로 그립니다. 설정 없음.</div></div>
  <div class=pane data-p=sectors><div class=sec>S&amp;P 섹터 히트맵. 설정 없음.</div></div>
+ <div class=pane data-p=claude>
+  <div class=sec>Claude 사용량: 게이지(사용량) vs 시계바늘(경과 시간). 세션·주간·모델별 한도 표시.</div>
+  <div class=sec id=ckstat>세션 키 확인 중…</div>
+  <div class=seg><input id=cksk type=password spellcheck=false placeholder="세션 키  sk-ant-sid02-…"></div>
+  <div class=seg><input id=ckorg type=text spellcheck=false placeholder="조직 ID (비우면 자동 감지)"></div>
+  <div class=seg><button onclick="savekey()">세션 키 저장</button></div>
+  <div class=hint id=ckhint></div>
+  <div class=sec>우하단 박스 — 기본은 Claude 마스코트, GIF로 교체 가능</div>
+  <div class=thumbs id=cgif></div>
+ </div>
  <div class=pane data-p=off><div class=sec>스트리밍을 멈추고 기기의 로컬 시계 화면으로 돌아갑니다.</div></div>
 
  <div class=pane data-p=stocks>
@@ -184,6 +199,29 @@ function saveGlobal(){
  let q='/settings?bits='+CB+'&dither='+($('dith').checked?1:0)+'&brightness='+$('br').value;
  let ip=$('dev').value.trim();if(ip)q+='&ip='+encodeURIComponent(ip);
  post(q);clean('g');flash($('ghint'),'저장했습니다')}
+
+// ---- claude session key (localhost-only; key is never echoed back) ----
+function loadck(){fetch('/claude_status').then(r=>r.json()).then(s=>{
+ $('ckstat').textContent=s.saved
+  ?('세션 키 저장됨 · org '+(s.org_id||'').slice(0,8)+'… · …'+s.key_hint)
+  :'세션 키가 설정되지 않았습니다';}).catch(e=>{})}
+function savekey(){
+ let sk=$('cksk').value.trim();
+ if(!sk){flash($('ckhint'),'세션 키를 입력하세요');return}
+ let body='session_key='+encodeURIComponent(sk)+'&org_id='+encodeURIComponent($('ckorg').value.trim());
+ $('ckhint').textContent='저장·확인 중…';
+ fetch('/claude_key',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body})
+  .then(r=>r.json()).then(j=>{
+   if(j.ok){$('cksk').value='';flash($('ckhint'),'저장됨 (org '+(j.org_id||'').slice(0,8)+'…)');loadck()}
+   else{flash($('ckhint'),'실패: '+(j.error||'알 수 없는 오류'))}
+  }).catch(e=>{flash($('ckhint'),'요청 실패')})}
+let CGIF='';
+function loadcgif(){fetch('/stickers').then(r=>r.json()).then(n=>{
+ let none='<div class="thumb none'+(CGIF?'':' sel')+'" data-n="" onclick="pickcgif(\'\')">마스코트</div>';
+ $('cgif').innerHTML=none+n.map(x=>'<img data-n="'+x+'" class="'+(x==CGIF?'sel':'')
+  +'" src="/thumb?name='+x+'" onclick="pickcgif(\''+x+'\')">').join('')}).catch(e=>{})}
+function pickcgif(n){CGIF=n;post('/claude_gif?name='+encodeURIComponent(n));
+ document.querySelectorAll('#cgif [data-n]').forEach(e=>e.classList.toggle('sel',e.dataset.n===n))}
 
 // ---- source selection (applied only by 전송) ----
 let SEL='furnace',CUR=null,TK=[],PICK='';
@@ -252,8 +290,9 @@ $('br').addEventListener('change',()=>dirty('g'));
 fetch('/status').then(r=>r.json()).then(s=>{
  TK=s.tickers||[];rendertk();$('rot').value=s.ticker_rotate||15;
  if(s.brightness!=null){$('br').value=s.brightness;bv.textContent=s.brightness+'%'}
+ CGIF=s.claude_gif||'';loadcgif();
  sel(s.current||'furnace');clean('s')});
-thumbs();tick();setInterval(tick,3000);setInterval(mon,250);
+thumbs();tick();loadck();setInterval(tick,3000);setInterval(mon,250);
 </script></body></html>"""
 
 
@@ -326,6 +365,13 @@ def apply_source(q):
             # via stream.start so the detach flags stay in one place (start_new_session
             # is POSIX-only; Windows needs creationflags instead)
             stream.start(src, extra, host=HOST)
+
+
+def set_claude_gif(name):
+    """Persist which gif the claude usage screen shows (a name in gif_dir, or '')."""
+    c = cfg_mod.load()
+    c["claude_gif"] = (name or "").strip()
+    cfg_mod.save(c)
 
 
 def apply_settings(q):
@@ -419,8 +465,10 @@ class Handler(BaseHTTPRequestHandler):
             st.setdefault("dither", False)
             c = cfg_mod.load()
             st.update(tickers=c["tickers"], ticker_rotate=c["ticker_rotate"],
-                      brightness=c["brightness"])
+                      brightness=c["brightness"], claude_gif=c["claude_gif"])
             self._send(200, "application/json", json.dumps(st).encode())
+        elif p == "/claude_status":
+            self._send(200, "application/json", json.dumps(claudeusage.secret_status()).encode())
         elif p == "/telemetry":
             self._send(200, "application/json", read_file(os.path.join(TELEM, "stat.json")) or b"{}")
         elif p == "/frame.jpg":
@@ -437,9 +485,26 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, "text/plain", b"")
 
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(n).decode() if n > 0 else ""
+        return {k: v[0] for k, v in urllib.parse.parse_qs(raw).items()}
+
     def do_POST(self):
         p = urllib.parse.urlparse(self.path).path
         qs = self.q()
+        # The session key rides in the POST body (not the URL) so it stays out of
+        # any request line; this one answers with the result (detected org / error)
+        # rather than fire-and-forget, so the browser can confirm the key took.
+        if p == "/claude_key":
+            b = self._body()
+            try:
+                org = claudeusage.save_secret(b.get("session_key", ""), b.get("org_id", ""))
+                self._send(200, "application/json", json.dumps({"ok": True, "org_id": org}).encode())
+            except Exception as e:
+                self._send(200, "application/json",
+                           json.dumps({"ok": False, "error": str(e).split(chr(10))[0][:120]}).encode())
+            return
         # Both handlers are slow (a source switch waits out a 3 s process teardown,
         # a device POST waits on a busy ESP8266), and the browser has nothing to do
         # with the result — so answer now and do the work on a worker thread.
@@ -447,6 +512,8 @@ class Handler(BaseHTTPRequestHandler):
             bg(apply_source, {k: v[0] for k, v in qs.items()})
         elif p == "/settings":
             bg(apply_settings, {k: v[0] for k, v in qs.items()})
+        elif p == "/claude_gif":
+            bg(set_claude_gif, qs.get("name", [""])[0])
         self._send(200, "text/plain", b"ok")
 
 

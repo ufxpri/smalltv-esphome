@@ -42,6 +42,7 @@ SOURCES = {
     "stickers": "stream_gif.py",
     "stocks": "stream_stocks.py",
     "sectors": "stream_sectors.py",
+    "claude": "stream_claude.py",
     "video": "stream_video.py",
 }
 ALL = list(SOURCES.values())
