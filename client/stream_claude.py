@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Claude usage on the SmallTV: a terminal-style burn monitor.
 
-A burn histogram of cumulative session usage (20-min bins) with a dashed
-projection of the current burn rate toward the 100% limit — so you can see
-whether you'll hit the limit before the session resets. Below it: a big
-"HITS LIMIT IN" countdown, an optional looping GIF, and a weekly segment bar.
+A burn histogram of cumulative session usage (30-min bins over the fixed
+reset-to-reset window, real clock times on the x-axis) with a dashed projection
+of the current burn rate toward the 100% limit and an OUT cursor where it
+crosses. Below it: two balanced readouts — USED % and RUNOUT time — colored by
+state, the hand-drawn Claude mascot (or a panel-picked GIF), and a weekly
+segment bar. Usage gains fire micro-burst particle pops over the NOW bar.
 
     python stream_claude.py [--host IP]
 
@@ -12,12 +14,14 @@ Data: live claude.ai limits API (utilization + reset) joined with the intra-
 window token distribution from ~/.claude/usage.db. See claudeusage.burn_model.
 """
 import datetime as dt
+import json
 import math
 import os
 import random
 import sys
 import threading
 import time
+from collections import deque
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -26,7 +30,7 @@ sys.path.insert(0, HERE)
 import claudeusage as cu                                    # noqa: E402
 import config as cfg_mod                                    # noqa: E402
 import stream as stream_mod                                 # noqa: E402
-from smalltv_stream import PORT, SS, H, Streamer, W, resolve_host  # noqa: E402
+from smalltv_stream import PORT, SS, H, Streamer, TELEM_DIR, W, resolve_host  # noqa: E402
 
 REFETCH_SECS = 10.0       # poll cadence (fetch runs off-thread so it never stutters)
 FPS = 10.0                # smooth GIF / mascot / burst playback
@@ -60,6 +64,10 @@ def font(px, bold=False):
 
 def _s(v):
     return int(round(v * SS))
+
+
+def _lerp(a, b, f):
+    return tuple(int(a[i] + (b[i] - a[i]) * f) for i in range(3))
 
 
 def _hmm(hours):
@@ -180,51 +188,97 @@ def draw_mascot(d, t):
     _box(d, cx - 1, tip - 1, cx + 1, tip + 1, AMBER)
 
 
-# ---- pixel-explosion FX: a burst above the bar that just rose (spec §6) ----
-# 4 age stages, cooling from ignition-white to residual-dark; one burst at a time
-# (a fresh trigger drops the previous one), emitted upward so it never hits the gif.
-BURST_LIFE = 0.62
-BURST_STAGES = [(0.09, (242, 236, 225)), (0.18, (217, 119, 87)),
-                (0.36, (141, 107, 88)), (0.62, (51, 44, 39))]
-_burst = {"spawn": -9.0, "parts": []}
+class BurstFX:
+    """Micro-burst particle FX: one tiny pop per ~1% of usage gained, spaced
+    INTERVAL apart — delta=12% queues 12 pops over ~2.4s. Also watches the
+    control panel's signal file (a bumped counter) so the 💥 button detonates
+    a MANUAL_PCT volley on demand.
+
+    Thread boundary: trigger() is called from the fetcher thread; particles()
+    (and the signal poll inside it) only from the render loop. The deque's
+    append/popleft are GIL-atomic and each side touches only its own end, so
+    no lock is needed — keep it that way if you add methods.
+    """
+    LIFE = 0.6            # seconds each pop flies
+    GRAVITY = 300.0       # px/s^2 for the parabolic arcs
+    INTERVAL = 0.20       # seconds between pops
+    MANUAL_PCT = 50       # the panel button fires this many pops (~10s volley)
+    COLORS = [(255, 255, 255), (242, 236, 225), (217, 119, 87), (224, 163, 63)]
+
+    def __init__(self, signal_path):
+        self._queue = deque()      # pending pops: {"when": t, "parts": [...]}
+        self._active = None        # the pop currently flying
+        self._signal_path = signal_path
+        self._sig_n = self._read_signal()   # baseline, so a press fires at once
+        self._sig_ts = 0.0
+
+    def trigger(self, delta, now=None):
+        """Queue one pop per ~1% of `delta` (in % points). Tiny deltas do nothing."""
+        if delta <= 0.3:
+            return
+        now = time.time() if now is None else now
+        for i in range(max(1, int(round(delta)))):
+            parts = []
+            for _ in range(6 + random.randint(-1, 1)):     # 5–7 tiny particles
+                ang = math.radians(random.uniform(-175, -5))   # upward (y grows down)
+                spd = random.uniform(50, 140)
+                sz = random.choice([1.0, 1.3, 1.6])
+                parts.append((math.cos(ang) * spd, math.sin(ang) * spd,
+                              sz, random.choice(self.COLORS)))
+            self._queue.append({"when": now + i * self.INTERVAL, "parts": parts})
+
+    def particles(self, now):
+        """[(vx, vy, sz, col, age), ...] flying right now (usually empty)."""
+        self._poll_signal(now)
+        if self._queue and now >= self._queue[0]["when"]:
+            self._active = self._queue.popleft()
+            self._active["spawn"] = now
+        if self._active and now - self._active["spawn"] > self.LIFE:
+            self._active = None
+        if not self._active:
+            return []
+        age = now - self._active["spawn"]
+        return [(vx, vy, sz, col, age) for vx, vy, sz, col in self._active["parts"]]
+
+    def _read_signal(self):
+        try:
+            with open(self._signal_path) as f:
+                return int(json.load(f).get("n", 0))
+        except Exception:
+            return 0
+
+    def _poll_signal(self, now):
+        if now - self._sig_ts < 0.15:
+            return
+        self._sig_ts = now
+        n = self._read_signal()
+        if n != self._sig_n:
+            self._sig_n = n
+            self.trigger(self.MANUAL_PCT, now)
 
 
-def trigger_burst(delta):
-    """Spawn a burst sized by the usage jump Δ (in % points). Δ<=~0 does nothing."""
-    if delta <= 0.3:
-        return
-    mag = 3 if delta >= 8 else (2 if delta >= 3 else 1)     # small / medium / large
-    npart = {1: 8, 2: 14, 3: 22}[mag]
-    base = {1: 2.3, 2: 3.6, 3: 5.2}[mag]
-    parts = []
-    for _ in range(npart):
-        ang = math.radians(random.uniform(205, 335))        # upward fan (y grows down)
-        spd = random.uniform(20, 46) * (0.7 + 0.15 * mag)
-        parts.append((math.cos(ang) * spd, math.sin(ang) * spd,
-                      base * random.uniform(0.7, 1.3)))
-    _burst.update(spawn=time.time(), parts=parts)
+FX = BurstFX(os.path.join(TELEM_DIR, "burst.json"))
 
 
-def draw_burst(d, ox, oy, now):
-    """Draw the active burst (if any) originating at bar-top (ox, oy)."""
-    age = now - _burst["spawn"]
-    if age > BURST_LIFE or not _burst["parts"]:
-        return
-    col = next(c for lim, c in BURST_STAGES if age <= lim)
-    for vx, vy, sz in _burst["parts"]:
-        px = ox + vx * age
-        py = oy + vy * age + 34 * age * age                  # a little gravity
-        r = max(sz * (1.0 - 0.35 * age / BURST_LIFE), 0.6)
-        d.rectangle([_s(px - r), _s(py - r), _s(px + r), _s(py + r)], fill=col)
+def draw_particles(d, ox, oy, particles):
+    """Draw flying particles from (ox, oy) on parabolic arcs."""
+    for vx, vy, sz, col, age in particles:
+        fade = max(0.0, 1.0 - age / BurstFX.LIFE)
+        bright = 0.5 + 0.5 * fade
+        x = ox + vx * age
+        y = oy + vy * age + 0.5 * BurstFX.GRAVITY * age * age
+        if y > H + 14 or x < -14 or x > W + 14:
+            continue
+        c = _lerp(col, BG, 1.0 - bright)
+        d.rectangle([_s(x - sz), _s(y - sz), _s(x + sz), _s(y + sz)], fill=c)
 
 
 def render(m, gif=None, t=0.0):
     img = Image.new("RGB", (W * SS, H * SS), BG)
     d = ImageDraw.Draw(img)
 
-    # ---- state (one comparison: runs_out vs reset_left) ----
-    locked = m.util >= 100.0
-    danger = (not locked) and (m.proj_h <= m.window_h)     # hits the limit before reset
+    # ---- state: the model's single verdict mapped to colors ----
+    locked, danger = m.state == "locked", m.state == "danger"
     accent = RED if locked else (AMBER if danger else CLAY)
     concl = RED if locked else (AMBER if danger else GREEN)
 
@@ -254,7 +308,8 @@ def render(m, gif=None, t=0.0):
         x0, x1 = cx - bw * 0.36, cx + bw * 0.36
         if k <= m.now_bin:
             col = CREAM if k == m.now_bin else accent
-            d.rectangle([_s(x0), _s(y(m.cum_pct[k])), _s(x1), _s(BASE)], fill=col)
+            top_k = y(m.cum_pct[k])
+            d.rectangle([_s(x0), _s(top_k), _s(x1), _s(BASE)], fill=col)
         else:
             d.rectangle([_s(x0), _s(BASE - 3), _s(x1), _s(BASE)], fill=DIMBAR)
 
@@ -285,9 +340,6 @@ def render(m, gif=None, t=0.0):
         d.text((_s(X0), _s(155)), clk(m.start_dt), font=font(10), fill=GRAY)
     d.text((_s(cxn), _s(155)), clk(m.now_dt), font=font(10, True), fill=CREAM, anchor="ma")
     d.text((_s(X1), _s(155)), clk(m.end_dt), font=font(10), fill=GRAY, anchor="ra")
-
-    # ---- pixel explosion above the bar that just rose ----
-    draw_burst(d, cxn, y(m.cum_pct[nb]), time.time())
 
     # ---- conclusion: two balanced stats — USED % (left) and RUNOUT (right) ----
     if locked:
@@ -321,6 +373,9 @@ def render(m, gif=None, t=0.0):
                     fill=CREAM if i < fill_n else DIM)
     d.text((_s(230), _s(215)), f"{round(m.weekly)}%", font=font(11, True),
            fill=CREAM, anchor="ra")
+
+    # ---- micro-burst particles flying on top ----
+    draw_particles(d, cxn, y(m.cum_pct[nb]), FX.particles(time.time()))
     return img.resize((W, H), Image.LANCZOS)
 
 
@@ -353,7 +408,7 @@ def _fetcher():
         try:
             m = cu.burn_model()
             if _data["prev_util"] is not None and m.util > _data["prev_util"]:
-                trigger_burst(m.util - _data["prev_util"])   # usage grew -> spark
+                FX.trigger(m.util - _data["prev_util"])      # usage grew -> pops
             _data["prev_util"] = m.util
             _data["model"], _data["err"] = m, None
             print(f"  util={m.util:.0f}% now_bin={m.now_bin} "
@@ -380,9 +435,9 @@ def main():
                     time.sleep(0.5)
                     continue
                 s.push(render(model, load_gif(), frame_start - t0))
-                dt = (1.0 / FPS) - (time.time() - frame_start)
-                if dt > 0:
-                    time.sleep(dt)
+                sleep_for = (1.0 / FPS) - (time.time() - frame_start)
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
         except OSError as e:
             print(f"\n[claude] disconnected: {e}; retrying in 3s")
             try:

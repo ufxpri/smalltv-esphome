@@ -190,9 +190,10 @@ class BurnModel:
     utilization + the intra-window token distribution in usage.db.
 
     The API only gives one utilization snapshot, so the *shape* over time comes
-    from usage.db output tokens: each 20-min bin's cumulative token share of the
-    window is scaled by the current utilization to get a cumulative-% curve. The
-    recent slope of that curve, extended to 100%, is the limit projection.
+    from usage.db output tokens: each BURN_BIN_MIN-minute bin's cumulative token
+    share of the window is scaled by the current utilization to get a
+    cumulative-% curve. The recent slope of that curve, extended to 100%, is the
+    limit projection.
     """
     util: float              # current session utilization %  (0..100)
     reset_h: float           # hours until the session resets
@@ -211,8 +212,19 @@ class BurnModel:
     end_dt: dt.datetime      # wall-clock instant of the next reset (x-axis END)
 
     @property
+    def state(self):
+        """The screen's single verdict, so model and view can't drift:
+        'locked' (used >= limit), 'danger' (projection hits 100% before the
+        window resets), or 'ok'."""
+        if self.util >= 100.0:
+            return "locked"
+        if self.proj_h <= self.window_h:
+            return "danger"
+        return "ok"
+
+    @property
     def safe(self):
-        return self.hits_in_h == float("inf") or self.proj_h > self.window_h
+        return self.state == "ok"
 
     @property
     def out_dt(self):
@@ -286,10 +298,12 @@ def burn_model(now=None):
     incr = [cum_pct[i] - cum_pct[i - 1] for i in range(1, now_bin + 1)] or [0.0]
     easing = incr[-1] <= (incr[-2] if len(incr) > 1 else incr[-1])
 
-    return BurnModel(util, reset_h, elapsed_h, window_h, cum_pct, now_bin, slope,
-                     hits_in, proj, incr[-1], easing,
-                     byk["weekly_all"].usage * 100.0 if "weekly_all" in byk else 0.0,
-                     start_dt, now, end_dt)
+    return BurnModel(
+        util=util, reset_h=reset_h, elapsed_h=elapsed_h, window_h=window_h,
+        cum_pct=cum_pct, now_bin=now_bin, slope=slope, hits_in_h=hits_in,
+        proj_h=proj, delta=incr[-1], easing=easing,
+        weekly=byk["weekly_all"].usage * 100.0 if "weekly_all" in byk else 0.0,
+        start_dt=start_dt, now_dt=now, end_dt=end_dt)
 
 
 if __name__ == "__main__":

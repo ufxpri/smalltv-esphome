@@ -154,6 +154,7 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
   <div class=hint id=ckhint></div>
   <div class=sec>우하단 박스 — 기본은 Claude 마스코트, GIF로 교체 가능</div>
   <div class=thumbs id=cgif></div>
+  <div class=seg><button onclick="post('/burst')">💥 폭발 테스트</button></div>
  </div>
  <div class=pane data-p=off><div class=sec>스트리밍을 멈추고 기기의 로컬 시계 화면으로 돌아갑니다.</div></div>
 
@@ -374,6 +375,21 @@ def set_claude_gif(name):
     cfg_mod.save(c)
 
 
+def fire_burst():
+    """Bump the counter the claude source polls, so it detonates a burst at once."""
+    os.makedirs(TELEM, exist_ok=True)
+    path = os.path.join(TELEM, "burst.json")
+    try:
+        with open(path) as f:
+            n = int(json.load(f).get("n", 0))
+    except Exception:
+        n = 0
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"n": n + 1}, f)
+    os.replace(tmp, path)
+
+
 def apply_settings(q):
     """Persist + push the global settings in one go (the 저장 button)."""
     set_host(q.get("ip", ""))
@@ -514,6 +530,8 @@ class Handler(BaseHTTPRequestHandler):
             bg(apply_settings, {k: v[0] for k, v in qs.items()})
         elif p == "/claude_gif":
             bg(set_claude_gif, qs.get("name", [""])[0])
+        elif p == "/burst":
+            fire_burst()
         self._send(200, "text/plain", b"ok")
 
 
