@@ -207,7 +207,7 @@ class BurstFX:
 
     def __init__(self, signal_path):
         self._queue = deque()      # pending pops: {"when": t, "parts": [...]}
-        self._active = None        # the pop currently flying
+        self._active = []          # pops currently flying (they overlap: LIFE > INTERVAL)
         self._signal_path = signal_path
         self._sig_n = self._read_signal()   # baseline, so a press fires at once
         self._sig_ts = 0.0
@@ -222,23 +222,23 @@ class BurstFX:
             for _ in range(6 + random.randint(-1, 1)):     # 5–7 tiny particles
                 ang = math.radians(random.uniform(-175, -5))   # upward (y grows down)
                 spd = random.uniform(50, 140)
-                sz = random.choice([1.0, 1.3, 1.6])
+                sz = random.choice([1.5, 2.0, 2.5])            # visible on the 1.3" panel
                 parts.append((math.cos(ang) * spd, math.sin(ang) * spd,
                               sz, random.choice(self.COLORS)))
             self._queue.append({"when": now + i * self.INTERVAL, "parts": parts})
 
     def particles(self, now):
-        """[(vx, vy, sz, col, age), ...] flying right now (usually empty)."""
+        """[(vx, vy, sz, col, age), ...] flying right now (usually empty).
+        Due pops join the active list and live out their full LIFE, so with
+        LIFE > INTERVAL a volley keeps ~LIFE/INTERVAL pops crackling at once."""
         self._poll_signal(now)
-        if self._queue and now >= self._queue[0]["when"]:
-            self._active = self._queue.popleft()
-            self._active["spawn"] = now
-        if self._active and now - self._active["spawn"] > self.LIFE:
-            self._active = None
-        if not self._active:
-            return []
-        age = now - self._active["spawn"]
-        return [(vx, vy, sz, col, age) for vx, vy, sz, col in self._active["parts"]]
+        while self._queue and now >= self._queue[0]["when"]:
+            pop = self._queue.popleft()
+            pop["spawn"] = now
+            self._active.append(pop)
+        self._active = [p for p in self._active if now - p["spawn"] <= self.LIFE]
+        return [(vx, vy, sz, col, now - p["spawn"])
+                for p in self._active for vx, vy, sz, col in p["parts"]]
 
     def _read_signal(self):
         try:
