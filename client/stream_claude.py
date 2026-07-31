@@ -10,8 +10,9 @@ segment bar. Usage gains fire micro-burst particle pops over the NOW bar.
 
     python stream_claude.py [--host IP]
 
-Data: live claude.ai limits API (utilization + reset) joined with the intra-
-window token distribution from ~/.claude/usage.db. See claudeusage.burn_model.
+Data: live claude.ai limits API (utilization + reset); the curve is the
+utilization history this source records itself, so past bars never change
+retroactively. See claudeusage.burn_model.
 """
 import datetime as dt
 import json

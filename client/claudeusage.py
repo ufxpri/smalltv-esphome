@@ -8,6 +8,11 @@ Two independent data sources, joined here:
   * the local `~/.claude/usage.db` (written by Claude Code) — exact token counts
     per turn, aggregated per window for a "tokens this week" readout.
 
+The burn chart's shape does NOT come from usage.db (it is flushed too lazily to
+trust): the source records the API utilization it observes into a per-window
+history file (claude_burn_history.json) and draws bars from that, so past bars
+are frozen observations.
+
 The session key is read from a 0600 file in the app-support dir, never the repo:
     {config_dir}/claude_session.json  = {"org_id": "...", "session_key": "sk-ant-sid02-..."}
 Rotate it by logging claude.ai out of all devices, then rewrite that file.
@@ -182,18 +187,18 @@ def fetch_gauges(now=None):
     return parse(fetch_raw(), now=now)
 
 
-# ---- burn model: usage-over-time in the session window + projection to limit ----
+# ---- burn model: observed usage-over-time in the session window + projection ----
 
 @dataclass
 class BurnModel:
-    """Everything the burn-monitor screen draws, computed from the live session
-    utilization + the intra-window token distribution in usage.db.
+    """Everything the burn-monitor screen draws.
 
-    The API only gives one utilization snapshot, so the *shape* over time comes
-    from usage.db output tokens: each BURN_BIN_MIN-minute bin's cumulative token
-    share of the window is scaled by the current utilization to get a
-    cumulative-% curve. The recent slope of that curve, extended to 100%, is the
-    limit projection.
+    The curve is *observed*, not reconstructed: every burn_model() call appends
+    the API's current utilization to a per-window history file, and each bar is
+    the recorded level at that bin's end — so past bars never change
+    retroactively. Only stretches when the source wasn't running are filled by
+    linear interpolation between the surrounding samples. The recent slope of
+    the observed curve, extended to 100%, is the limit projection.
     """
     util: float              # current session utilization %  (0..100)
     reset_h: float           # hours until the session resets
@@ -234,29 +239,41 @@ class BurnModel:
         return self.now_dt + dt.timedelta(hours=self.hits_in_h)
 
 
-def token_bins(start, bin_min, nbins):
-    """output_tokens summed into `nbins` bins of `bin_min` minutes from `start`."""
-    bins = [0.0] * nbins
+HISTORY_FILE = cfg_mod.config_dir() / "claude_burn_history.json"
+HISTORY_MIN_GAP = 25.0     # seconds between kept samples (bounds the file size)
+
+
+def _load_history(start_dt):
+    """(canonical_start, samples) for this window — the stored window_start wins
+    while it matches (±120s), pinning the bin grid: the API's resets_at jitters
+    by ~a second per call, and letting that shift start_dt would wobble every
+    interpolated bar. A larger mismatch means a new window: fresh start, no
+    samples."""
     try:
-        con = sqlite3.connect(f"file:{USAGE_DB}?mode=ro", uri=True, timeout=2)
-        try:
-            rows = con.execute(
-                "SELECT timestamp, output_tokens FROM turns WHERE timestamp >= ? "
-                "ORDER BY timestamp", (start.strftime("%Y-%m-%dT%H:%M:%SZ"),)).fetchall()
-        finally:
-            con.close()
+        with open(HISTORY_FILE) as f:
+            d = json.load(f)
+        ws = dt.datetime.fromisoformat(d["window_start"])
+        if abs((ws - start_dt).total_seconds()) > 120:
+            return start_dt, []
+        return ws, [(dt.datetime.fromisoformat(t), float(u)) for t, u in d["samples"]]
     except Exception:
-        return bins
-    for ts, ot in rows:
-        t = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        k = int((t - start).total_seconds() // (bin_min * 60))
-        if 0 <= k < nbins:
-            bins[k] += ot or 0
-    return bins
+        return start_dt, []
+
+
+def _save_history(start_dt, samples):
+    tmp = str(HISTORY_FILE) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"window_start": start_dt.isoformat(),
+                   "samples": [[t.isoformat(), round(u, 2)] for t, u in samples]}, f)
+    os.replace(tmp, HISTORY_FILE)
 
 
 def burn_model(now=None):
-    """Live burn model for the session window. Raises if there's no session window."""
+    """Live burn model for the session window. Raises if there's no session window.
+
+    Appends the current API utilization to the per-window history, then builds
+    the whole curve from those observations — past bars are frozen fact, not a
+    reconstruction (see BurnModel docstring)."""
     now = now or dt.datetime.now(dt.timezone.utc)
     raw = fetch_raw()
     byk = {g.key: g for g in parse(raw, now)}
@@ -264,44 +281,55 @@ def burn_model(now=None):
     if not sess:
         raise ValueError("활성 세션 한도 정보가 없습니다")
     util = sess.usage * 100.0
-    reset_h = sess.resets_in / 3600.0
     window_h = WINDOW_SECS["five_hour"] / 3600.0
-    elapsed_h = max(0.0, window_h - reset_h)
-
-    # The session window is a FIXED [reset, next-reset] span (e.g. 15:10–20:10),
-    # not a rolling now-5h. Bin tokens from the window's actual start so bin k lines
-    # up with wall-clock and now_bin, otherwise the tokens land past now_bin (bars=0).
+    # The session window is a FIXED [reset, next-reset] span (e.g. 15:10–20:10);
+    # the grid is pinned to the history's stored start so API jitter can't move it.
     end_dt = now + dt.timedelta(seconds=sess.resets_in)      # next reset (x-axis END)
-    start_dt = end_dt - dt.timedelta(hours=window_h)         # this window's reset (x-axis start)
-    cum, acc = [], 0.0
-    for b in token_bins(start_dt, BURN_BIN_MIN, BURN_NBINS):
-        acc += b
-        cum.append(acc)
-    now_bin = min(BURN_NBINS - 1, max(0, int(elapsed_h * 60 // BURN_BIN_MIN)))
-    # The API's utilization is the ground truth for the *current* cumulative level,
-    # so normalize the token curve to it (NOW bar == util). usage.db is flushed only
-    # periodically, so when it has nothing for [start, now] yet, fall back to a steady
-    # ramp up to util rather than showing empty bars.
-    denom = cum[now_bin]
-    if denom > 0:
-        cum_pct = [min(util * c / denom, util) for c in cum]
+    start_dt, samples = _load_history(end_dt - dt.timedelta(hours=window_h))
+    end_dt = start_dt + dt.timedelta(hours=window_h)
+    elapsed_h = (now - start_dt).total_seconds() / 3600.0
+    reset_h = max(0.0, window_h - elapsed_h)
+
+    samples = [s for s in samples if start_dt <= s[0] <= now]
+    if not samples or (now - samples[-1][0]).total_seconds() >= HISTORY_MIN_GAP:
+        samples.append((now, util))
     else:
-        cum_pct = [util * min(k + 1, now_bin + 1) / (now_bin + 1) for k in range(BURN_NBINS)]
-    for k in range(now_bin + 1, BURN_NBINS):   # future bins sit flat at the current level
-        cum_pct[k] = cum_pct[now_bin]
+        samples[-1] = (now, util)                            # refresh the newest slot
+    _save_history(start_dt, samples)
 
-    binh = BURN_BIN_MIN / 60.0
-    lo = max(0, now_bin - 3)
-    slope = (cum_pct[now_bin] - cum_pct[lo]) / ((now_bin - lo) * binh) if now_bin > lo else 0.0
-    hits_in = (100.0 - cum_pct[now_bin]) / slope if slope > 1e-6 else math.inf
+    def util_at(t):
+        """Observed util at instant t: 0 at window start, linear between samples,
+        flat at the last sample after it."""
+        if t <= start_dt:
+            return 0.0
+        pt, pu = start_dt, 0.0
+        for st, su in samples:
+            if st >= t:
+                span = (st - pt).total_seconds()
+                f = (t - pt).total_seconds() / span if span > 0 else 1.0
+                return pu + (su - pu) * f
+            pt, pu = st, su
+        return pu
+
+    now_bin = min(BURN_NBINS - 1, max(0, int(elapsed_h * 60 // BURN_BIN_MIN)))
+    cum_pct = [util_at(min(start_dt + dt.timedelta(minutes=(k + 1) * BURN_BIN_MIN), now))
+               for k in range(BURN_NBINS)]
+    cum_pct[now_bin] = util                                  # the NOW bar is the live reading
+
+    # Recent burn rate from the observed last hour (or what exists of it),
+    # projected to the limit; trend Δ compares the last two bin-length spans.
+    anchor_t = max(start_dt, now - dt.timedelta(hours=1))
+    anchor_hrs = (now - anchor_t).total_seconds() / 3600.0
+    slope = (util - util_at(anchor_t)) / anchor_hrs if anchor_hrs > 0.02 else 0.0
+    hits_in = (100.0 - util) / slope if slope > 1e-6 else math.inf
     proj = elapsed_h + hits_in if hits_in != math.inf else math.inf
-    incr = [cum_pct[i] - cum_pct[i - 1] for i in range(1, now_bin + 1)] or [0.0]
-    easing = incr[-1] <= (incr[-2] if len(incr) > 1 else incr[-1])
-
+    binh = BURN_BIN_MIN / 60.0
+    d1 = util - util_at(now - dt.timedelta(hours=binh))
+    d0 = util_at(now - dt.timedelta(hours=binh)) - util_at(now - dt.timedelta(hours=2 * binh))
     return BurnModel(
         util=util, reset_h=reset_h, elapsed_h=elapsed_h, window_h=window_h,
         cum_pct=cum_pct, now_bin=now_bin, slope=slope, hits_in_h=hits_in,
-        proj_h=proj, delta=incr[-1], easing=easing,
+        proj_h=proj, delta=d1, easing=d1 <= d0,
         weekly=byk["weekly_all"].usage * 100.0 if "weekly_all" in byk else 0.0,
         start_dt=start_dt, now_dt=now, end_dt=end_dt)
 
