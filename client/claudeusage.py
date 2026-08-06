@@ -232,6 +232,13 @@ class BurnModel:
         return self.state == "ok"
 
     @property
+    def proj_util(self):
+        """Utilization % this window is projected to end on, at the current burn
+        rate. Only meaningful while state == 'ok' (a 'danger' window reaches 100
+        before the reset, so it saturates here)."""
+        return min(100.0, self.util + max(0.0, self.slope) * self.reset_h)
+
+    @property
     def out_dt(self):
         """Projected wall-clock instant the limit is hit (None if never / no burn)."""
         if self.hits_in_h == float("inf"):

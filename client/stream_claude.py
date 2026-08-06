@@ -342,13 +342,15 @@ def render(m, gif=None, t=0.0):
     d.text((_s(cxn), _s(155)), clk(m.now_dt), font=font(10, True), fill=CREAM, anchor="ma")
     d.text((_s(X1), _s(155)), clk(m.end_dt), font=font(10), fill=GRAY, anchor="ra")
 
-    # ---- conclusion: two balanced stats — USED % (left) and RUNOUT (right) ----
+    # ---- conclusion: two balanced stats — USED % (left) and the outcome (right).
+    # A runout past the reset is not a real event (the window resets first), so
+    # instead of a meaningless countdown it reports where the window will land.
     if locked:
         r_label, r_val = "LOCKED", _hmm(m.reset_h)
-    elif m.hits_in_h == math.inf:
-        r_label, r_val = "RUNOUT", "SAFE"
-    else:
+    elif danger:
         r_label, r_val = "RUNOUT", _hmm(m.hits_in_h)
+    else:
+        r_label, r_val = "AT RESET", f"{round(m.proj_util)}%"
     d.text((_s(10), _s(165)), "USED", font=font(9), fill=GRAY)
     d.text((_s(96), _s(165)), r_label, font=font(9), fill=GRAY)
     d.text((_s(8), _s(175)), f"{round(m.util)}%", font=font(26, True), fill=accent)
