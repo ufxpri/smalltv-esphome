@@ -244,7 +244,8 @@ HISTORY_MIN_GAP = 25.0     # seconds between kept samples (bounds the file size)
 
 # Burn-rate lookback: start this short so a burst shows up almost at once, and
 # only reach further back when utilization has not moved enough to measure.
-SLOPE_FLOOR_MIN = 5
+SLOPE_FLOOR_MIN = 10
+SLOPE_STEP_MIN = 5
 SLOPE_CAP_MIN = 60
 
 
@@ -325,13 +326,13 @@ def burn_model(now=None):
     cum_pct[now_bin] = util                                  # the NOW bar is the live reading
 
     # Recent burn rate, read over the shortest lookback that can actually see a
-    # change. The API reports utilization in whole percent, so a fixed 5-minute
-    # window resolves rates only in 12%/h steps and reads as "no burn" ~70% of
-    # the time; growing the window until a full step appears keeps the five-
-    # minute response while you are burning hard and only slows down when the
-    # signal is too small to measure. Projected to the limit from there.
+    # change. The API reports utilization in whole percent, so a short fixed
+    # window resolves rates only in coarse steps and reads as "no burn" most of
+    # the time; growing the window until a full step appears keeps the response
+    # near the floor while you are burning hard and only reaches further back
+    # when the signal is too small to measure. Projected to the limit from there.
     slope = 0.0
-    for lb_min in range(SLOPE_FLOOR_MIN, SLOPE_CAP_MIN + 1, SLOPE_FLOOR_MIN):
+    for lb_min in range(SLOPE_FLOOR_MIN, SLOPE_CAP_MIN + 1, SLOPE_STEP_MIN):
         anchor_t = max(start_dt, now - dt.timedelta(minutes=lb_min))
         anchor_hrs = (now - anchor_t).total_seconds() / 3600.0
         if anchor_hrs <= 0.01:

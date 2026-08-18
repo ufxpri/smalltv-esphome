@@ -5,8 +5,8 @@ A burn histogram of cumulative session usage over the fixed reset-to-reset
 window: 30-min bins, real clock times along the x-axis, and the live usage %
 riding the y-axis at its own height. Solid bars are measured; the bins ahead
 are dashed ghost bars at the projected level, warming toward red as they near
-the limit, with a cursor where the projection crosses it. Below: the two
-deadlines racing each other — RUNOUT and RESET IN — plus the hand-drawn Claude
+the limit, so the bin that reaches it is the one that runs you out. Below: the
+two deadlines racing each other — RUNOUT and RESET IN — plus the hand-drawn Claude
 mascot (or a panel-picked GIF) and a weekly segment bar. Usage gains fire
 micro-burst particle pops over the NOW bar.
 
@@ -360,13 +360,8 @@ def render(m, gif=None, t=0.0):
             p = min(100.0, m.util + max(0.0, m.slope) * ((k + 1) * binh - m.elapsed_h))
             _ghost_box(d, x0, y(p), x1, BASE, _proj_color(p))
 
-    # ---- OUT cursor where the projection crosses the limit (x is linear in time) ----
     nb = m.now_bin
     cxn = X0 + bw * nb + bw / 2
-    if danger:                    # only meaningful while the limit lands first;
-        out_x = X0 + (max(m.elapsed_h, m.proj_h) / m.window_h) * (X1 - X0)
-        for yy in range(TOP, BASE, 6):
-            d.line([_s(out_x), _s(yy), _s(out_x), _s(yy + 3)], fill=AMBER, width=_s(1))
 
     # ---- x axis: real clock times, window-reset -> next-reset. The NOW clock is
     # centred on its bin, so the fixed end labels yield to it when it drifts near.
