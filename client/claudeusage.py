@@ -232,13 +232,6 @@ class BurnModel:
         return self.state == "ok"
 
     @property
-    def proj_util(self):
-        """Utilization % this window is projected to end on, at the current burn
-        rate. Only meaningful while state == 'ok' (a 'danger' window reaches 100
-        before the reset, so it saturates here)."""
-        return min(100.0, self.util + max(0.0, self.slope) * self.reset_h)
-
-    @property
     def out_dt(self):
         """Projected wall-clock instant the limit is hit (None if never / no burn)."""
         if self.hits_in_h == float("inf"):
@@ -248,6 +241,11 @@ class BurnModel:
 
 HISTORY_FILE = cfg_mod.config_dir() / "claude_burn_history.json"
 HISTORY_MIN_GAP = 25.0     # seconds between kept samples (bounds the file size)
+
+# Burn-rate lookback: start this short so a burst shows up almost at once, and
+# only reach further back when utilization has not moved enough to measure.
+SLOPE_FLOOR_MIN = 5
+SLOPE_CAP_MIN = 60
 
 
 def _load_history(start_dt):
@@ -297,12 +295,15 @@ def burn_model(now=None):
     elapsed_h = (now - start_dt).total_seconds() / 3600.0
     reset_h = max(0.0, window_h - elapsed_h)
 
-    samples = [s for s in samples if start_dt <= s[0] <= now]
-    if not samples or (now - samples[-1][0]).total_seconds() >= HISTORY_MIN_GAP:
-        samples.append((now, util))
-    else:
-        samples[-1] = (now, util)                            # refresh the newest slot
-    _save_history(start_dt, samples)
+    # Commit a reading at most every HISTORY_MIN_GAP, and never rewrite the tip's
+    # timestamp: moving it forward would restart the gap on every poll, so the
+    # history could never grow past one sample and every past bar would be
+    # redrawn as a straight line from the window start to the live utilization.
+    hist = [s for s in samples if start_dt <= s[0] <= now]
+    if not hist or (now - hist[-1][0]).total_seconds() >= HISTORY_MIN_GAP:
+        hist.append((now, util))
+        _save_history(start_dt, hist)
+    samples = hist if hist[-1][0] == now else hist + [(now, util)]
 
     def util_at(t):
         """Observed util at instant t: 0 at window start, linear between samples,
@@ -323,11 +324,22 @@ def burn_model(now=None):
                for k in range(BURN_NBINS)]
     cum_pct[now_bin] = util                                  # the NOW bar is the live reading
 
-    # Recent burn rate from the observed last hour (or what exists of it),
-    # projected to the limit; trend Δ compares the last two bin-length spans.
-    anchor_t = max(start_dt, now - dt.timedelta(hours=1))
-    anchor_hrs = (now - anchor_t).total_seconds() / 3600.0
-    slope = (util - util_at(anchor_t)) / anchor_hrs if anchor_hrs > 0.02 else 0.0
+    # Recent burn rate, read over the shortest lookback that can actually see a
+    # change. The API reports utilization in whole percent, so a fixed 5-minute
+    # window resolves rates only in 12%/h steps and reads as "no burn" ~70% of
+    # the time; growing the window until a full step appears keeps the five-
+    # minute response while you are burning hard and only slows down when the
+    # signal is too small to measure. Projected to the limit from there.
+    slope = 0.0
+    for lb_min in range(SLOPE_FLOOR_MIN, SLOPE_CAP_MIN + 1, SLOPE_FLOOR_MIN):
+        anchor_t = max(start_dt, now - dt.timedelta(minutes=lb_min))
+        anchor_hrs = (now - anchor_t).total_seconds() / 3600.0
+        if anchor_hrs <= 0.01:
+            continue
+        moved = util - util_at(anchor_t)
+        slope = max(0.0, moved / anchor_hrs)
+        if moved >= 1.0 or anchor_t == start_dt:
+            break
     hits_in = (100.0 - util) / slope if slope > 1e-6 else math.inf
     proj = elapsed_h + hits_in if hits_in != math.inf else math.inf
     binh = BURN_BIN_MIN / 60.0

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Claude usage on the SmallTV: a terminal-style burn monitor.
 
-A burn histogram of cumulative session usage (30-min bins over the fixed
-reset-to-reset window, real clock times on the x-axis) with a dashed projection
-of the current burn rate toward the 100% limit and an OUT cursor where it
-crosses. Below it: two balanced readouts — USED % and RUNOUT time — colored by
-state, the hand-drawn Claude mascot (or a panel-picked GIF), and a weekly
-segment bar. Usage gains fire micro-burst particle pops over the NOW bar.
+A burn histogram of cumulative session usage over the fixed reset-to-reset
+window: 30-min bins, real clock times along the x-axis, and the live usage %
+riding the y-axis at its own height. Solid bars are measured; the bins ahead
+are dashed ghost bars at the projected level, warming toward red as they near
+the limit, with a cursor where the projection crosses it. Below: the two
+deadlines racing each other — RUNOUT and RESET IN — plus the hand-drawn Claude
+mascot (or a panel-picked GIF) and a weekly segment bar. Usage gains fire
+micro-burst particle pops over the NOW bar.
 
     python stream_claude.py [--host IP]
 
@@ -46,8 +48,6 @@ RED = (207, 75, 58)         # #CF4B3A  limit reached
 GRAY = (120, 112, 100)      # muted labels
 TRACKGRAY = (74, 66, 58)    # #4A423A  window track
 DIM = (42, 38, 34)
-DIMBAR = (52, 46, 40)
-PROJ = (205, 200, 185)
 
 MONO = "/System/Library/Fonts/Menlo.ttc"
 _fc = {}
@@ -76,6 +76,19 @@ def _hmm(hours):
         return "--:--"
     m = int(round(hours * 60))
     return f"{m // 60}:{m % 60:02d}"
+
+
+IMMINENT_H = 10 / 60.0    # under ten minutes a countdown switches to mm:ss
+
+
+def _countdown(hours):
+    """h:mm, or mm:ss once under IMMINENT_H — the seconds are the part still
+    moving by then. Callers recolor it, which is also what tells the two units
+    apart (both render as N:NN)."""
+    if hours >= IMMINENT_H:
+        return _hmm(hours)
+    s = max(0, int(hours * 3600))
+    return f"{s // 60}:{s % 60:02d}"
 
 
 def _dash(d, x0, y0, x1, y1, color, w=1, dash=5, gap=4):
@@ -142,8 +155,9 @@ def load_gif():
     return _gif_state["gif"]
 
 
-# chart + layout geometry (final 240x240 units)
-X0, X1 = 10, 230
+# chart + layout geometry (final 240x240 units). X0 leaves a left margin for
+# the y-axis, which carries the used-% readout at its own height.
+X0, X1 = 33, 230
 TOP, BASE = 46, 150
 GBOX = (172, 164, 230, 208)   # gif / mascot box (x0,y0,x1,y1) — right-side accent
 
@@ -156,6 +170,24 @@ MC_EYE = (34, 26, 22)
 
 def _box(d, x0, y0, x1, y1, fill):
     d.rectangle([_s(x0), _s(y0), _s(x1), _s(y1)], fill=fill)
+
+
+def _ghost_box(d, x0, y0, x1, y1, color):
+    """An unfilled bar outlined in dashes — a projection, not a measurement.
+    The baseline is left open; the chart's own axis already draws it."""
+    _dash(d, x0, y0, x1, y0, color, 1, 3, 3)
+    for x in (x0, x1):
+        _dash(d, x, y0, x, y1, color, 1, 3, 3)
+
+
+def _proj_color(pct):
+    """Projected bars warm from the usual clay toward amber and then red as they
+    approach the limit, so a run that ends badly looks wrong before you read it."""
+    if pct <= 50:
+        return CLAY
+    if pct <= 85:
+        return _lerp(CLAY, AMBER, (pct - 50) / 35.0)
+    return _lerp(AMBER, RED, min(1.0, (pct - 85) / 15.0))
 
 
 def draw_mascot(d, t):
@@ -283,6 +315,9 @@ def render(m, gif=None, t=0.0):
     accent = RED if locked else (AMBER if danger else CLAY)
     concl = RED if locked else (AMBER if danger else GREEN)
 
+    def clk(x):     # clock times are rounded to the minute, never truncated
+        return (x.astimezone() + dt.timedelta(seconds=30)).strftime("%H:%M")
+
     # ---- header ----
     d.text((_s(10), _s(6)), "burn", font=font(15, True), fill=CREAM)
     d.text((_s(55), _s(8)), "▶", font=font(11), fill=accent)
@@ -292,7 +327,7 @@ def render(m, gif=None, t=0.0):
     d.text((_s(230), _s(8)), f"Δ+{round(m.delta)} {arrow} {trend}",
            font=font(11), fill=GREEN if m.easing else AMBER, anchor="ra")
     d.text((_s(10), _s(28)), "LIMIT 100%", font=font(11), fill=accent)
-    d.text((_s(230), _s(28)), f"RESET {_hmm(m.reset_h)}", font=font(11), fill=GRAY, anchor="ra")
+    d.text((_s(230), _s(28)), f"RESET ▸{clk(m.end_dt)}", font=font(11), fill=GRAY, anchor="ra")
 
     # limit reference line (top of chart) + window track (baseline / x-axis)
     d.line([_s(X0), _s(TOP), _s(X1), _s(TOP)], fill=accent, width=_s(2))
@@ -304,57 +339,55 @@ def render(m, gif=None, t=0.0):
     def y(p):
         return BASE - (p / 100.0) * (BASE - TOP)
 
+    # ---- y axis: the used % rides it at its own height (0 and 100 yield to it) ----
+    d.line([_s(X0 - 2), _s(TOP), _s(X0 - 2), _s(BASE)], fill=TRACKGRAY, width=_s(1))
+    ylev = y(m.util)
+    for lvl, lab in ((TOP, "100"), (BASE, "0")):
+        if abs(ylev - lvl) > 9:
+            d.text((_s(X0 - 6), _s(lvl)), lab, font=font(8), fill=GRAY, anchor="rm")
+    d.line([_s(X0 - 5), _s(ylev), _s(X0 - 2), _s(ylev)], fill=accent, width=_s(1))
+    d.text((_s(X0 - 7), _s(ylev)), f"{round(m.util)}%", font=font(10, True),
+           fill=accent, anchor="rm")
+
+    binh = cu.BURN_BIN_MIN / 60.0
     for k in range(cu.BURN_NBINS):
         cx = X0 + bw * k + bw / 2
         x0, x1 = cx - bw * 0.36, cx + bw * 0.36
-        if k <= m.now_bin:
+        if k <= m.now_bin:                                 # measured: a solid bar
             col = CREAM if k == m.now_bin else accent
-            top_k = y(m.cum_pct[k])
-            d.rectangle([_s(x0), _s(top_k), _s(x1), _s(BASE)], fill=col)
-        else:
-            d.rectangle([_s(x0), _s(BASE - 3), _s(x1), _s(BASE)], fill=DIMBAR)
+            d.rectangle([_s(x0), _s(y(m.cum_pct[k])), _s(x1), _s(BASE)], fill=col)
+        else:                                              # projected: a ghost bar
+            p = min(100.0, m.util + max(0.0, m.slope) * ((k + 1) * binh - m.elapsed_h))
+            _ghost_box(d, x0, y(p), x1, BASE, _proj_color(p))
 
-    # ---- projection + OUT cursor ----
+    # ---- OUT cursor where the projection crosses the limit (x is linear in time) ----
     nb = m.now_bin
     cxn = X0 + bw * nb + bw / 2
-    yn = y(m.cum_pct[nb])
-    out_x = None
-    if m.slope > 1e-6:
-        dpb = m.slope * (cu.BURN_BIN_MIN / 60.0)          # % per bin
-        x100 = cxn + ((100.0 - m.cum_pct[nb]) / dpb) * bw
-        if x100 <= X1:                                     # limit hit within this window
-            _dash(d, cxn, yn, x100, TOP, PROJ)
-            out_x = x100
-        else:                                              # hit lands after END (off-chart) -> safe
-            ey = yn - (X1 - cxn) / (x100 - cxn) * (yn - TOP)
-            _dash(d, cxn, yn, X1, ey, PROJ)
-    else:
-        _dash(d, cxn, yn, X1, yn, (120, 116, 108))
-    if out_x is not None:                                  # dashed cursor where it crosses 100%
+    if danger:                    # only meaningful while the limit lands first;
+        out_x = X0 + (max(m.elapsed_h, m.proj_h) / m.window_h) * (X1 - X0)
         for yy in range(TOP, BASE, 6):
             d.line([_s(out_x), _s(yy), _s(out_x), _s(yy + 3)], fill=AMBER, width=_s(1))
 
-    # ---- axis: real clock times (rounded to the minute), window-reset -> next-reset ----
-    def clk(x):
-        return (x.astimezone() + dt.timedelta(seconds=30)).strftime("%H:%M")
-    if cxn > X0 + 44:      # else the centered NOW clock would collide with the start
+    # ---- x axis: real clock times, window-reset -> next-reset. The NOW clock is
+    # centred on its bin, so the fixed end labels yield to it when it drifts near.
+    if cxn > X0 + 44:
         d.text((_s(X0), _s(155)), clk(m.start_dt), font=font(10), fill=GRAY)
+    if cxn < X1 - 44:      # the exact reset clock also lives in the header
+        d.text((_s(X1), _s(155)), clk(m.end_dt), font=font(10), fill=GRAY, anchor="ra")
     d.text((_s(cxn), _s(155)), clk(m.now_dt), font=font(10, True), fill=CREAM, anchor="ma")
-    d.text((_s(X1), _s(155)), clk(m.end_dt), font=font(10), fill=GRAY, anchor="ra")
 
-    # ---- conclusion: two balanced stats — USED % (left) and the outcome (right).
-    # A runout past the reset is not a real event (the window resets first), so
-    # instead of a meaningless countdown it reports where the window will land.
-    if locked:
-        r_label, r_val = "LOCKED", _hmm(m.reset_h)
-    elif danger:
-        r_label, r_val = "RUNOUT", _hmm(m.hits_in_h)
-    else:
-        r_label, r_val = "AT RESET", f"{round(m.proj_util)}%"
-    d.text((_s(10), _s(165)), "USED", font=font(9), fill=GRAY)
-    d.text((_s(96), _s(165)), r_label, font=font(9), fill=GRAY)
-    d.text((_s(8), _s(175)), f"{round(m.util)}%", font=font(26, True), fill=accent)
-    d.text((_s(94), _s(175)), r_val, font=font(26, True), fill=concl)
+    # ---- the two deadlines, side by side: whichever lands first is what happens.
+    # RESET is the one you can't argue with, so it gets the big type; RUNOUT is
+    # the projection racing it, colored by which of the two wins.
+    runout = "0:00" if locked else _hmm(m.hits_in_h)
+    d.text((_s(10), _s(165)), "RUNOUT", font=font(9), fill=GRAY)
+    d.text((_s(8), _s(179)), runout, font=font(20, True), fill=concl)
+    # The reset is an instant, so count down to it from the wall clock rather than
+    # from the model's snapshot — otherwise the seconds would jump a poll at a time.
+    left_h = max(0.0, (m.end_dt - dt.datetime.now(dt.timezone.utc)).total_seconds() / 3600.0)
+    d.text((_s(80), _s(165)), "RESET IN", font=font(9), fill=GRAY)
+    d.text((_s(78), _s(174)), _countdown(left_h), font=font(30, True),
+           fill=GREEN if left_h < IMMINENT_H else CREAM)
 
     # ---- gif / info box ----
     bx0, by0, bx1, by1 = GBOX
