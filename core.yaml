@@ -138,6 +138,7 @@ text_sensor:
   - platform: wifi_info
     ip_address:
       name: "IP Address"
+      id: wifi_ip          # drawn as a footer on every local page (see build_dispatch)
 
 sensor:
   - platform: uptime

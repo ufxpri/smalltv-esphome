@@ -92,6 +92,11 @@ def build_dispatch(selected):
     if selected:   # only valid when there's a preceding if-branch
         L.append('else { it.printf(120, 120, id(font_small), Color(0xFFA0A0), '
                  'TextAlign::CENTER, "no page: %s", _m.c_str()); }')
+    # Footer: the device's own address. A local page is what you see when no PC
+    # is streaming, which is exactly when you need to reach the device and have
+    # no way to look the address up. Skipped in "Off" (it returns above).
+    L.append('if (id(wifi_ip).has_state()) it.printf(120, 228, id(font_small), '
+             'Color(0x5A6470), TextAlign::CENTER, "%s", id(wifi_ip).state.c_str());')
     L.append("id(g_last_render) = millis() - _t0;")
     return "\n".join(L)
 
