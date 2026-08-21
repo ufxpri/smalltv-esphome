@@ -100,6 +100,18 @@ def gif_dir():
     return os.path.join(HERE, "gifs")
 
 
+def video_dir():
+    """Where uploaded videos live — same split as gif_dir(), same reason."""
+    if getattr(sys, "frozen", False):
+        import config
+        d = config.config_dir() / "videos"
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d)
+    d = os.path.join(HERE, "videos")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def command(script, extra):
     """argv to run one of our scripts — frozen or from source.
 

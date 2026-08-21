@@ -43,6 +43,7 @@ _ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 HOST = _ARGS[0] if _ARGS else cfg_mod.load()["device_ip"]
 NO_BROWSER = "--no-browser" in sys.argv     # the widget launches us at login
 GIFDIR = stream.gif_dir()
+VIDDIR = stream.video_dir()
 MODE = os.path.join(TELEM, "mode.json")
 PORT = 8787
 # Derived from stream.SOURCES so a new source only has to be registered once.
@@ -93,6 +94,8 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .chip{background:#22242b;border-radius:8px;padding:6px 8px 6px 11px;font-size:13px;font-family:ui-monospace,monospace;display:flex;gap:7px;align-items:center}
 .chip b{color:#7c8b99;cursor:pointer;font-weight:400}.chip b:hover{color:#ff6b6b}
+#vl .chip{cursor:pointer;border:2px solid transparent}#vl .chip:hover{border-color:#3a5a9d}
+#vl .chip.sel{border-color:#d97757}
 .presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .presets button{border:0;border-radius:8px;background:#1b2530;color:#9fc4e0;padding:6px 11px;cursor:pointer;font-size:13px}
 .presets button:hover{background:#243444}.presets button:disabled{opacity:.4;cursor:default}
@@ -176,8 +179,14 @@ input[type=range]{flex:1;accent-color:#d97757}#bv{min-width:42px;text-align:righ
  </div>
 
  <div class=pane data-p=video>
-  <div class=sec>재생할 영상 / 움짤 파일 경로</div>
-  <div class=seg><input id=vpath type=text spellcheck=false placeholder="C:\path\to\clip.mp4" oninput="dirty('s')"></div>
+  <div class=sec>영상 업로드 — mp4 / gif / webm 등, ffmpeg가 읽는 것 전부</div>
+  <div class=seg>
+   <input id=vfile type=file accept="video/*,.gif,.webm,.mkv,.avi,.mov" style="display:none" onchange="upvid(this)">
+   <button onclick="$('vfile').click()">📁 파일 선택…</button>
+   <span id=vup style="font-size:12px;color:#7c8b99"></span>
+  </div>
+  <div class=sec>재생할 영상 — 하나를 골라 전송하세요</div>
+  <div class=chips id=vl></div>
  </div>
 
  <button class=apply id=send onclick="sendSrc()">전송</button>
@@ -235,9 +244,8 @@ function sendSrc(){
  let q='/apply?src='+SEL;
  if(SEL=='stocks')q+='&tickers='+encodeURIComponent(TK.join(','))+'&rotate='+($('rot').value||15);
  if(SEL=='stickers')q+='&pick='+encodeURIComponent(PICK);
- if(SEL=='video'){let p=$('vpath').value.trim();
-  if(!p){flash($('shint'),'파일 경로를 입력하세요');return}
-  q+='&path='+encodeURIComponent(p)}
+ if(SEL=='video'){if(!VSEL){flash($('shint'),'영상을 업로드하거나 목록에서 선택하세요');return}
+  q+='&name='+encodeURIComponent(VSEL)}
  post(q);CUR=SEL;marksel();clean('s');flash($('shint'),SEL=='off'?'중지 요청됨':'전송했습니다')}
 
 // One-click quick-adds. Yahoo symbols are opaque (^KS11, 005930.KS); the label
@@ -256,6 +264,26 @@ function addsym(v){v=v.trim().toUpperCase();
  if(v&&!TK.includes(v)){TK.push(v);rendertk();dirty('s')}}
 function addtk(){let e=$('tk');addsym(e.value);e.value=''}
 function deltk(i){TK.splice(i,1);rendertk();dirty('s')}
+// ---- uploaded videos ----
+let VSEL='';
+async function vids(){try{let n=await(await fetch('/videos')).json();
+ $('vl').innerHTML=n.length?n.map(x=>'<span class="chip'+(x===VSEL?' sel':'')
+  +'" onclick="pickv(\''+x.replace(/'/g,"\\'")+'\')">'+x
+  +' <b onclick="event.stopPropagation();delv(\''+x.replace(/'/g,"\\'")+'\')">×</b></span>').join('')
+  :'<span style="font-size:12px;color:#7c8b99">업로드된 영상이 없습니다</span>'}catch(e){}}
+function pickv(n){VSEL=n;vids();dirty('s')}
+async function delv(n){await fetch('/del_video?name='+encodeURIComponent(n),{method:'POST'}).catch(e=>{});
+ if(VSEL===n)VSEL='';vids()}
+async function upvid(inp){let f=inp.files[0];if(!f)return;
+ $('vup').textContent='업로드 중… '+(f.size/1048576).toFixed(1)+' MB';
+ try{
+  let r=await fetch('/upload_video?name='+encodeURIComponent(f.name),{method:'POST',body:f});
+  let j=await r.json();
+  if(j.ok){VSEL=j.name;vids();dirty('s');$('vup').textContent='완료 — 전송을 누르면 재생됩니다'}
+  else $('vup').textContent='실패: '+(j.error||'알 수 없는 오류');
+ }catch(e){$('vup').textContent='업로드 실패'}
+ inp.value=''}
+
 function pick(n){PICK=(PICK===n?'':n);
  document.querySelectorAll('#th img').forEach(i=>i.classList.toggle('sel',i.dataset.n===PICK));
  dirty('s')}
@@ -293,7 +321,7 @@ fetch('/status').then(r=>r.json()).then(s=>{
  if(s.brightness!=null){$('br').value=s.brightness;bv.textContent=s.brightness+'%'}
  CGIF=s.claude_gif||'';loadcgif();
  sel(s.current||'furnace');clean('s')});
-thumbs();tick();loadck();setInterval(tick,3000);setInterval(mon,250);
+thumbs();vids();tick();loadck();setInterval(tick,3000);setInterval(mon,250);
 </script></body></html>"""
 
 
@@ -355,9 +383,14 @@ def apply_source(q):
         name = q.get("pick", "")
         extra = [GIFDIR, *(["--pick", name] if name else [])]
     elif src == "video":
-        extra = [q.get("path", "")]
-        if not extra[0]:
+        name = os.path.basename(q.get("name", ""))
+        # `path` survives for one-off use; strip the quotes Windows' "copy as
+        # path" wraps around it — quoted, ffmpeg fails with "Invalid argument".
+        path = (os.path.join(VIDDIR, name) if name
+                else q.get("path", "").strip().strip('"').strip("'"))
+        if not path or not os.path.isfile(path):
             return
+        extra = [path]
     else:
         extra = []
     with APPLY:
@@ -490,6 +523,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/frame.jpg":
             img = read_file(os.path.join(TELEM, "frame.jpg"))
             self._send(200, "image/jpeg", img) if img else self._send(404, "text/plain", b"")
+        elif p == "/videos":
+            names = sorted(os.path.basename(x) for x in glob.glob(os.path.join(VIDDIR, "*"))
+                           if os.path.isfile(x))
+            self._send(200, "application/json", json.dumps(names).encode())
         elif p == "/stickers":
             names = [os.path.basename(x) for x in sorted(glob.glob(os.path.join(GIFDIR, "*.gif")))]
             self._send(200, "application/json", json.dumps(names).encode())
@@ -520,6 +557,52 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(200, "application/json",
                            json.dumps({"ok": False, "error": str(e).split(chr(10))[0][:120]}).encode())
+            return
+        # The body is the raw file (no multipart — fetch posts the File object
+        # straight), so it just streams to disk. Answers with the result so the
+        # browser can select the new file or show why it was refused.
+        if p == "/upload_video":
+            name = os.path.basename(qs.get("name", [""])[0]).strip()
+            n = int(self.headers.get("Content-Length") or 0)
+            err = None
+            if not name:
+                err = "파일 이름이 없습니다"
+            elif n <= 0:
+                err = "빈 파일입니다"
+            elif n > 512 * 1024 * 1024:
+                err = "512 MB를 넘습니다"
+            if err:
+                self._send(200, "application/json", json.dumps({"ok": False, "error": err}).encode())
+                return
+            dst = os.path.join(VIDDIR, name)
+            tmp = dst + ".part"
+            try:
+                with open(tmp, "wb") as f:
+                    left = n
+                    while left > 0:
+                        chunk = self.rfile.read(min(1 << 20, left))
+                        if not chunk:
+                            raise IOError("연결이 끊겼습니다")
+                        f.write(chunk)
+                        left -= len(chunk)
+                os.replace(tmp, dst)
+                self._send(200, "application/json", json.dumps({"ok": True, "name": name}).encode())
+            except Exception as e:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                self._send(200, "application/json",
+                           json.dumps({"ok": False, "error": str(e)[:120]}).encode())
+            return
+        if p == "/del_video":
+            name = os.path.basename(qs.get("name", [""])[0])
+            if name:
+                try:
+                    os.remove(os.path.join(VIDDIR, name))
+                except OSError:
+                    pass
+            self._send(200, "text/plain", b"ok")
             return
         # Both handlers are slow (a source switch waits out a 3 s process teardown,
         # a device POST waits on a busy ESP8266), and the browser has nothing to do
