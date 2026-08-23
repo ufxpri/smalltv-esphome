@@ -49,7 +49,16 @@ GRAY = (120, 112, 100)      # muted labels
 TRACKGRAY = (74, 66, 58)    # #4A423A  window track
 DIM = (42, 38, 34)
 
-MONO = "/System/Library/Fonts/Menlo.ttc"
+# (regular, bold) mono font per platform — first pair whose regular exists wins.
+# A None bold means the regular is a .ttc whose index 1 is the bold face (Menlo).
+_MONO_CANDIDATES = [
+    ("/System/Library/Fonts/Menlo.ttc", None),                       # macOS
+    ("C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/consolab.ttf"),  # Windows
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+     "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"),    # Linux
+]
+MONO, MONO_BOLD = next(((r, b) for r, b in _MONO_CANDIDATES if os.path.exists(r)),
+                       (None, None))
 _fc = {}
 
 
@@ -57,9 +66,13 @@ def font(px, bold=False):
     key = (px, bold)
     if key not in _fc:
         try:
-            _fc[key] = ImageFont.truetype(MONO, int(px * SS), index=1 if bold else 0)
+            if MONO_BOLD:
+                _fc[key] = ImageFont.truetype(MONO_BOLD if bold else MONO, int(px * SS))
+            else:
+                _fc[key] = ImageFont.truetype(MONO, int(px * SS), index=1 if bold else 0)
         except Exception:
-            _fc[key] = ImageFont.load_default()
+            # last resort: PIL's bitmap font, at least at the right size
+            _fc[key] = ImageFont.load_default(int(px * SS))
     return _fc[key]
 
 
