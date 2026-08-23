@@ -54,6 +54,12 @@ class Gauge:
         return self.usage - self.time_progress
 
 
+class AuthError(ValueError):
+    """claude.ai rejected the session key (401/403). Unlike a transient network
+    error this never heals on its own — the key must be re-saved from the
+    browser, so callers should surface it instead of retrying quietly."""
+
+
 def load_secret():
     with open(SESSION_FILE) as f:
         d = json.load(f)
@@ -71,7 +77,7 @@ def fetch_org_id(session_key):
                               "accept": "*/*", "referer": "https://claude.ai/new"},
                      impersonate="chrome", timeout=25)
     if r.status_code in (401, 403):
-        raise ValueError("세션 키가 유효하지 않거나 만료되었습니다")
+        raise AuthError("세션 키가 유효하지 않거나 만료되었습니다")
     r.raise_for_status()
     orgs = r.json()
     if not orgs:
@@ -118,6 +124,8 @@ def fetch_raw(timeout=25):
                      headers={"anthropic-client-platform": "web_claude_ai",
                               "accept": "*/*", "referer": "https://claude.ai/new"},
                      impersonate="chrome", timeout=timeout)
+    if r.status_code in (401, 403):
+        raise AuthError("세션 키가 유효하지 않거나 만료되었습니다")
     r.raise_for_status()
     return r.json()
 

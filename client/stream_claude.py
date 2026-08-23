@@ -37,6 +37,7 @@ from smalltv_stream import PORT, SS, H, Streamer, TELEM_DIR, W, resolve_host  # 
 
 REFETCH_SECS = 10.0       # poll cadence (fetch runs off-thread so it never stutters)
 FPS = 10.0                # smooth GIF / mascot / burst playback
+STALE_AFTER = 6           # consecutive fetch errors (~1 min) before the screen says so
 
 # palette per DISPLAY SPEC v1
 BG = (11, 10, 10)
@@ -319,7 +320,7 @@ def draw_particles(d, ox, oy, particles):
         d.rectangle([_s(x - sz), _s(y - sz), _s(x + sz), _s(y + sz)], fill=c)
 
 
-def render(m, gif=None, t=0.0):
+def render(m, gif=None, t=0.0, stale=False):
     img = Image.new("RGB", (W * SS, H * SS), BG)
     d = ImageDraw.Draw(img)
 
@@ -335,10 +336,13 @@ def render(m, gif=None, t=0.0):
     d.text((_s(10), _s(6)), "burn", font=font(15, True), fill=CREAM)
     d.text((_s(55), _s(8)), "▶", font=font(11), fill=accent)
     d.text((_s(73), _s(6)), f"{cu.BURN_BIN_MIN}min", font=font(15, True), fill=CREAM)
-    arrow = "▼" if m.easing else "▲"
-    trend = "EASING" if m.easing else "RISING"
-    d.text((_s(230), _s(8)), f"Δ+{round(m.delta)} {arrow} {trend}",
-           font=font(11), fill=GREEN if m.easing else AMBER, anchor="ra")
+    if stale:   # fetches have been failing for a while — the numbers are old
+        d.text((_s(230), _s(8)), "! STALE", font=font(11, True), fill=AMBER, anchor="ra")
+    else:
+        arrow = "▼" if m.easing else "▲"
+        trend = "EASING" if m.easing else "RISING"
+        d.text((_s(230), _s(8)), f"Δ+{round(m.delta)} {arrow} {trend}",
+               font=font(11), fill=GREEN if m.easing else AMBER, anchor="ra")
     d.text((_s(10), _s(28)), "LIMIT 100%", font=font(11), fill=accent)
     d.text((_s(230), _s(28)), f"RESET ▸{clk(m.end_dt)}", font=font(11), fill=GRAY, anchor="ra")
 
@@ -431,6 +435,21 @@ def render_wait(msg):
     return img.resize((W, H), Image.LANCZOS)
 
 
+def render_auth():
+    """The session key was rejected — stale data would be a lie, so say it
+    outright and point at the fix. (Mono font: no Hangul, keep it English.)"""
+    img = Image.new("RGB", (W * SS, H * SS), BG)
+    d = ImageDraw.Draw(img)
+    d.text((_s(10), _s(6)), "burn", font=font(15, True), fill=CREAM)
+    d.text((_s(120), _s(104)), "! SESSION EXPIRED", font=font(14, True),
+           fill=AMBER, anchor="mm")
+    d.text((_s(120), _s(126)), "re-save the key in the panel", font=font(10),
+           fill=GRAY, anchor="mm")
+    d.text((_s(120), _s(142)), ":8787 → usage", font=font(10),
+           fill=GRAY, anchor="mm")
+    return img.resize((W, H), Image.LANCZOS)
+
+
 def parse_args(argv):
     host = None
     i = 0
@@ -444,7 +463,7 @@ def parse_args(argv):
 
 # Shared latest model, produced off the render thread so a ~1s fetch never
 # stutters the animation. A usage increase between polls fires a burst.
-_data = {"model": None, "err": None, "prev_util": None}
+_data = {"model": None, "err": None, "prev_util": None, "err_n": 0, "auth": False}
 
 
 def _fetcher():
@@ -455,11 +474,20 @@ def _fetcher():
                 FX.trigger(m.util - _data["prev_util"])      # usage grew -> pops
             _data["prev_util"] = m.util
             _data["model"], _data["err"] = m, None
+            _data["err_n"], _data["auth"] = 0, False
             print(f"  util={m.util:.0f}% now_bin={m.now_bin} "
-                  f"hits_in={_hmm(m.hits_in_h)} wk={m.weekly:.0f}%")
+                  f"hits_in={_hmm(m.hits_in_h)} wk={m.weekly:.0f}%", flush=True)
+        except cu.AuthError as e:
+            # the key won't come back on its own — flag it so the screen flips
+            # to the renewal notice instead of quietly showing stale numbers.
+            # load_secret() re-reads the file each poll, so a re-saved key is
+            # picked up here without a restart.
+            _data["auth"], _data["err"] = True, str(e)
+            print(f"  auth error: {_data['err']}", flush=True)
         except Exception as e:
+            _data["err_n"] += 1
             _data["err"] = str(e).split("\n")[0][:40]
-            print(f"  fetch error: {_data['err']}")
+            print(f"  fetch error ({_data['err_n']}x): {_data['err']}", flush=True)
         time.sleep(REFETCH_SECS)
 
 
@@ -474,11 +502,16 @@ def main():
             while True:
                 frame_start = time.time()
                 model = _data["model"]
+                if _data["auth"]:
+                    s.push(render_auth())
+                    time.sleep(0.5)
+                    continue
                 if model is None:
                     s.push(render_wait(_data["err"] or "loading..."))
                     time.sleep(0.5)
                     continue
-                s.push(render(model, load_gif(), frame_start - t0))
+                s.push(render(model, load_gif(), frame_start - t0,
+                              stale=_data["err_n"] >= STALE_AFTER))
                 sleep_for = (1.0 / FPS) - (time.time() - frame_start)
                 if sleep_for > 0:
                     time.sleep(sleep_for)
