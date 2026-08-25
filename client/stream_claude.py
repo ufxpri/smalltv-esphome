@@ -24,7 +24,6 @@ import random
 import sys
 import threading
 import time
-from collections import deque
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -236,56 +235,66 @@ def draw_mascot(d, t):
 
 
 class BurstFX:
-    """Micro-burst particle FX: one tiny pop per ~1% of usage gained, spaced
-    INTERVAL apart — delta=12% queues 12 pops over ~2.4s. Also watches the
-    control panel's signal file (a bumped counter) so the 💥 button detonates
-    a MANUAL_PCT volley on demand.
+    """Sparks over the NOW bar for as long as usage is climbing — an activity
+    light, not a firework. Each poll reports how much was gained, and that sets
+    an emission rate that holds until the next poll replaces it. Because the
+    reading is stamped and expires after TTL, "no more polls" means the sparks
+    stop on their own: a failed fetch, a wedged fetcher, or a genuinely idle
+    model all read as calm without anyone having to switch them off.
 
-    Thread boundary: trigger() is called from the fetcher thread; particles()
-    (and the signal poll inside it) only from the render loop. The deque's
-    append/popleft are GIL-atomic and each side touches only its own end, so
-    no lock is needed — keep it that way if you add methods.
+    So a 1% gain — the smallest the API can express, since it reports whole
+    percent — is a full poll interval of visible sparks rather than a blink,
+    and heavier use shows up as a denser stream over the same span.
+
+    Thread boundary: set_burn() is called from the fetcher thread, particles()
+    only from the render loop. Each writes its own attributes and the reads are
+    single-slot, so no lock is needed — keep it that way if you add methods.
     """
-    LIFE = 0.6            # seconds each pop flies
+    LIFE = 0.6            # seconds a spark flies
     GRAVITY = 300.0       # px/s^2 for the parabolic arcs
-    INTERVAL = 0.20       # seconds between pops
-    MANUAL_PCT = 50       # the panel button fires this many pops (~10s volley)
+    TTL = REFETCH_SECS * 1.3    # a reading outlives its poll a little, so back-to-back
+                                # busy polls emit seamlessly instead of flickering
+    BASE_RATE = 2.0       # sparks/s at the faintest measurable burn
+    RATE_PER_PCT = 1.5    # extra sparks/s per point gained
+    MAX_RATE = 40.0
+    MANUAL_DELTA = 12     # the panel's test button pretends this much was gained
     COLORS = [(255, 255, 255), (242, 236, 225), (217, 119, 87), (224, 163, 63)]
 
     def __init__(self, signal_path):
-        self._queue = deque()      # pending pops: {"when": t, "parts": [...]}
-        self._active = []          # pops currently flying (they overlap: LIFE > INTERVAL)
+        self._rate = 0.0        # sparks/s from the newest reading
+        self._stamp = 0.0       # when that reading was taken (staleness clock)
+        self._parts = []        # sparks in flight: (spawn, vx, vy, size, color)
+        self._pending = 0.0     # fractional spark carried between frames
+        self._last = 0.0
         self._signal_path = signal_path
         self._sig_n = self._read_signal()   # baseline, so a press fires at once
         self._sig_ts = 0.0
 
-    def trigger(self, delta, now=None):
-        """Queue one pop per ~1% of `delta` (in % points). Tiny deltas do nothing."""
-        if delta <= 0.3:
-            return
-        now = time.time() if now is None else now
-        for i in range(max(1, int(round(delta)))):
-            parts = []
-            for _ in range(6 + random.randint(-1, 1)):     # 5–7 tiny particles
-                ang = math.radians(random.uniform(-175, -5))   # upward (y grows down)
-                spd = random.uniform(50, 140)
-                sz = random.choice([1.5, 2.0, 2.5])            # visible on the 1.3" panel
-                parts.append((math.cos(ang) * spd, math.sin(ang) * spd,
-                              sz, random.choice(self.COLORS)))
-            self._queue.append({"when": now + i * self.INTERVAL, "parts": parts})
+    def set_burn(self, delta, now=None):
+        """Report the utilization gained since the previous poll. Any rise at all
+        emits; no rise (or a window reset, which drops util) goes quiet."""
+        self._rate = (min(self.BASE_RATE + self.RATE_PER_PCT * delta, self.MAX_RATE)
+                      if delta > 0 else 0.0)
+        self._stamp = time.time() if now is None else now
 
     def particles(self, now):
-        """[(vx, vy, sz, col, age), ...] flying right now (usually empty).
-        Due pops join the active list and live out their full LIFE, so with
-        LIFE > INTERVAL a volley keeps ~LIFE/INTERVAL pops crackling at once."""
+        """[(vx, vy, size, color, age), ...] in flight right now."""
         self._poll_signal(now)
-        while self._queue and now >= self._queue[0]["when"]:
-            pop = self._queue.popleft()
-            pop["spawn"] = now
-            self._active.append(pop)
-        self._active = [p for p in self._active if now - p["spawn"] <= self.LIFE]
-        return [(vx, vy, sz, col, now - p["spawn"])
-                for p in self._active for vx, vy, sz, col in p["parts"]]
+        rate = self._rate if now - self._stamp < self.TTL else 0.0
+        # Clamp the step so a stalled render (or a fetch hiccup) can't dump a
+        # whole backlog of sparks into one frame.
+        step = min(now - self._last, 0.25) if self._last else 0.0
+        self._last = now
+        self._pending += rate * step
+        while self._pending >= 1.0:
+            self._pending -= 1.0
+            ang = math.radians(random.uniform(-175, -5))       # upward (y grows down)
+            spd = random.uniform(50, 140)
+            self._parts.append((now, math.cos(ang) * spd, math.sin(ang) * spd,
+                                random.choice([1.5, 2.0, 2.5]),
+                                random.choice(self.COLORS)))
+        self._parts = [p for p in self._parts if now - p[0] <= self.LIFE]
+        return [(vx, vy, sz, col, now - t0) for t0, vx, vy, sz, col in self._parts]
 
     def _read_signal(self):
         try:
@@ -301,7 +310,7 @@ class BurstFX:
         n = self._read_signal()
         if n != self._sig_n:
             self._sig_n = n
-            self.trigger(self.MANUAL_PCT, now)
+            self.set_burn(self.MANUAL_DELTA, now)
 
 
 FX = BurstFX(os.path.join(TELEM_DIR, "burst.json"))
@@ -470,8 +479,8 @@ def _fetcher():
     while True:
         try:
             m = cu.burn_model()
-            if _data["prev_util"] is not None and m.util > _data["prev_util"]:
-                FX.trigger(m.util - _data["prev_util"])      # usage grew -> pops
+            if _data["prev_util"] is not None:      # every poll reports, gain or not
+                FX.set_burn(m.util - _data["prev_util"])
             _data["prev_util"] = m.util
             _data["model"], _data["err"] = m, None
             _data["err_n"], _data["auth"] = 0, False
