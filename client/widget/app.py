@@ -142,6 +142,14 @@ def main():
         pass
 
     m = Manager()
+    if m.cfg.get("start_at_login"):
+        # Re-register on every launch: the login item stores an absolute path,
+        # which goes stale when the build moves (e.g. onefile -> onedir). The
+        # config is the intent; the registration is derived, so refresh it.
+        try:
+            autostart.set_enabled(True)
+        except Exception as e:
+            m.log(f"login item refresh error: {e}")
     m.start_panel()          # the widget exists to keep the server up
 
     m.icon = pystray.Icon(

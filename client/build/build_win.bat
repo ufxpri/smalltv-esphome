@@ -6,7 +6,7 @@ cd /d "%~dp0\.."
 python -m pip install -r requirements-widget.txt pyinstaller || goto :err
 python -m PyInstaller --noconfirm build\smalltv_widget.spec || goto :err
 echo.
-echo Done. See dist\SmallTVWidget.exe
+echo Done. See dist\SmallTVWidget\SmallTVWidget.exe
 goto :eof
 :err
 echo Build failed.

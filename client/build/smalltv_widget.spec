@@ -1,10 +1,16 @@
-# PyInstaller spec — builds a single-file, windowed SmallTV Widget.
+# PyInstaller spec — builds a windowed SmallTV Widget as a onedir bundle.
 #
 #   cd client
 #   pip install -r requirements-widget.txt pyinstaller
 #   pyinstaller build/smalltv_widget.spec
 #
-# Output: client/dist/SmallTVWidget(.exe)  or  client/dist/SmallTVWidget.app
+# Output: client/dist/SmallTVWidget/SmallTVWidget(.exe)  or  client/dist/SmallTVWidget.app
+#
+# onedir, not onefile, on purpose: the widget is a resident daemon, and onefile
+# unpacks into a temp _MEI dir that the OS may clean up while the process is
+# still alive — files re-read at runtime (curl_cffi's CA bundle) then vanish
+# and every fetch fails with curl (77). onedir keeps everything at a permanent
+# path next to the exe, which also kills the reaped-_MEI child-spawn bug.
 import sys
 
 from PyInstaller.utils.hooks import collect_all
@@ -43,10 +49,8 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="SmallTVWidget",
     debug=False,
     strip=False,
@@ -55,9 +59,19 @@ exe = EXE(
     disable_windowed_traceback=False,
 )
 
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    name="SmallTVWidget",
+)
+
 if sys.platform == "darwin":
     app = BUNDLE(
-        exe,
+        coll,
         name="SmallTVWidget.app",
         icon=None,
         bundle_identifier="com.smalltv.widget",

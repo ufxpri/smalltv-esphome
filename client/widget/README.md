@@ -60,7 +60,10 @@ build\build_win.bat
 ```
 
 Output lands in `client/dist/`:
-- Windows → `SmallTVWidget.exe` (double-click; no console window)
+- Windows → `SmallTVWidget\SmallTVWidget.exe` (double-click; no console window).
+  The folder next to the exe is the app — keep them together. It's a onedir
+  build on purpose: the widget runs for weeks, and a onefile build's temp
+  `_MEI` dir gets cleaned up under it (broken CA bundle → every fetch fails).
 - macOS → `SmallTVWidget.app` (a menu-bar agent — no Dock icon). First launch:
   right-click → **Open** to get past Gatekeeper.
 
