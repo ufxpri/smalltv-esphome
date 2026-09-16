@@ -20,6 +20,7 @@ __pycache__/
 # PyInstaller widget build artifacts (keep the .spec + build scripts, drop output)
 /client/dist/
 /client/build/smalltv_widget/
+/client/build/generated/
 *.manifest
 
 

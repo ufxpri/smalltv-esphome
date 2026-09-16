@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="SmallTV">
+  <title>SmallTV</title>
+  <!-- The device itself: a 3:4 portrait body (42x56) with a 1:1 screen (32x32)
+       butted up under the top bezel, and a status LED on the chin.
+       Source of truth for widget/assets.py — same 64-unit grid, same numbers.
+       Screen/LED colours carry the state; the shape never changes.
+         online     screen #00E5FF  led #00E36B  rim #E6ECF2
+         streaming  screen #FFB000  led #FFB000  rim #E6ECF2
+         offline    screen #39434F  led #5A6472  rim #6B7684
+         low heap   screen #39434F  led #FF4060  rim #E6ECF2  + red top bar -->
+  <rect x="11" y="4" width="42" height="56" rx="10" fill="#0F141B" stroke="#E6ECF2" stroke-width="2.5"/>
+  <rect x="16" y="9" width="32" height="32" rx="5.5" fill="#00E5FF"/>
+  <circle cx="32" cy="51" r="3" fill="#00E36B"/>
+</svg>

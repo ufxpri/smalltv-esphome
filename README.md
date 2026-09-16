@@ -1,4 +1,4 @@
-# SmallTV-Ultra — ESPHome custom firmware
+# <img src="client/widget/icon.svg" width="30" align="top" alt=""> SmallTV-Ultra — ESPHome custom firmware
 
 Custom [ESPHome](https://esphome.io) firmware for a **GeekMagic SmallTV-Ultra**
 (third-party *robotcity* ESP8266 board, ST7789V 240×240 display), replacing the locked

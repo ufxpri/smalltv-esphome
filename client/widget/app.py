@@ -24,6 +24,9 @@ from . import autostart
 from . import panel
 
 
+LOW_HEAP = 6 * 1024   # bytes; below this the device paints its own red warning bar
+
+
 class Manager:
     def __init__(self):
         self.cfg = cfg_mod.load()
@@ -31,6 +34,7 @@ class Manager:
         self.up = False             # panel server reachable
         self.online = False         # device reachable, per the panel
         self.current = None         # source the panel says is streaming
+        self.heap = None            # device free heap in bytes, per the panel
 
     def log(self, msg):
         print(time.strftime("%H:%M:%S"), msg, flush=True)
@@ -94,17 +98,30 @@ class Manager:
         self.up = st is not None
         self.online = bool(st and st.get("online"))
         self.current = st and st.get("current")
+        self.heap = st and st.get("heap")
         self.cfg = cfg_mod.load()          # the panel is where device_ip is edited
         self._refresh_icon()
 
     def _refresh_icon(self):
         if not self.icon:
             return
-        self.icon.icon = assets.make_icon(self.online)
+        # LOW_HEAP is the device's own red-bar threshold (see DESIGN.md): under
+        # 6 KB it is at OOM risk, which outranks "a source is streaming".
+        if not self.online:
+            icon_state = "offline"
+        elif self.heap is not None and self.heap < LOW_HEAP:
+            icon_state = "low_heap"
+        elif self.current:
+            icon_state = "streaming"
+        else:
+            icon_state = "online"
+        self.icon.icon = assets.make_icon(state=icon_state)
         if not self.up:
             state = "server stopped"
         elif not self.online:
             state = f"server up · device unreachable ({self.cfg['device_ip']})"
+        elif icon_state == "low_heap":
+            state = f"low heap ({self.heap / 1024:.1f} KB) · {self.current or 'local page'}"
         else:
             state = f"server up · {self.current or 'local page'}"
         self.icon.title = f"SmallTV — {state}"
@@ -154,7 +171,7 @@ def main():
 
     m.icon = pystray.Icon(
         "smalltv_widget",
-        icon=assets.make_icon(False),
+        icon=assets.make_icon(state="offline"),
         title="SmallTV Widget",
         menu=build_menu(m),
     )

@@ -18,8 +18,21 @@ use.
 
 ## What it does
 
-- **Icon** — green when the device is reachable, grey when it isn't. The tooltip
-  reads `server stopped`, `server up · device unreachable (<ip>)`, or
+- **Icon** — the SmallTV itself: a 3:4 portrait body with a 1:1 screen and a
+  status LED on the chin. Only the *colour* carries state, never the shape, so it
+  never jumps around in the tray:
+
+  | state | when | screen / LED |
+  |-------|------|--------------|
+  | online | device answers | cyan / green |
+  | streaming | a PC source is running | amber / amber |
+  | offline | device unreachable | dark / grey, dimmed bezel |
+  | low heap | free heap < 6 KB | dark + red top bar / red |
+
+  The `low heap` state mirrors the red warning bar the device paints across its
+  own top edge — which is invisible while streaming, so the tray is the only
+  place you'd see it. The tooltip reads `server stopped`,
+  `server up · device unreachable (<ip>)`, `low heap (5.4 KB) · <source>`, or
   `server up · <source>`.
 - **Open control panel** — starts the server if needed, then opens the browser.
   (Also the default action on click.)
@@ -66,6 +79,15 @@ Output lands in `client/dist/`:
   `_MEI` dir gets cleaned up under it (broken CA bundle → every fetch fails).
 - macOS → `SmallTVWidget.app` (a menu-bar agent — no Dock icon). First launch:
   right-click → **Open** to get past Gatekeeper.
+
+The app icon (`.ico` / `.icns`) is **rendered during the build** into
+`client/build/generated/` — no binary asset is committed, and it can't drift from
+the tray glyph because both come out of `widget/assets.py`. That file and
+`widget/icon.svg` are the same drawing on the same 64-unit grid: edit one, edit
+the other. `icon.svg` is the vector original (use it for anything outside
+Python); `assets.py` draws it at 4× and downscales with LANCZOS, because
+Pillow's `ImageDraw` has no antialiasing and a 16 px tray icon drawn directly
+comes out as stair-stepped mush.
 
 To auto-start, tick **Start at login** in the widget — it registers the built
 executable, so it keeps working after reboot.

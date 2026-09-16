@@ -11,9 +11,20 @@
 # still alive — files re-read at runtime (curl_cffi's CA bundle) then vanish
 # and every fetch fails with curl (77). onedir keeps everything at a permanent
 # path next to the exe, which also kills the reaped-_MEI child-spawn bug.
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_all
+
+# Relative paths in a spec resolve against SPECPATH (this file's dir), not the
+# cwd — so `..` here is client/, matching `pathex` and the Analysis script below.
+sys.path.insert(0, os.path.abspath(os.path.join(SPECPATH, "..")))
+from widget import assets
+
+# The .ico/.icns is rendered here rather than committed — same drawing as the
+# tray glyph (widget/assets.py, mirroring widget/icon.svg), so the packaged app
+# and the tray can never drift apart.
+APP_ICON = assets.write_app_icon(os.path.join(SPECPATH, "generated"))
 
 block_cipher = None
 
@@ -56,6 +67,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,                       # windowed / no terminal
+    icon=APP_ICON,
     disable_windowed_traceback=False,
 )
 
@@ -73,7 +85,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="SmallTVWidget.app",
-        icon=None,
+        icon=APP_ICON,
         bundle_identifier="com.smalltv.widget",
         info_plist={
             # menu-bar agent: no Dock icon, no app switcher entry
