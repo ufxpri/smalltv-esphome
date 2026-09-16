@@ -625,13 +625,33 @@ def dev_post(path):
         pass
 
 
+class Panel(ThreadingHTTPServer):
+    # Windows' SO_REUSEADDR is not POSIX's: a SECOND process can bind a port that
+    # is already bound and listen on it happily. Measured here: both sockets bind,
+    # and the FIRST one keeps receiving the connections — so the duplicate becomes
+    # a process that is alive, looks started, and serves nobody. It is not what
+    # takes the panel down, but it is the factory that manufactures the orphans
+    # widget/panel.py then has to reason about. Refuse the duplicate bind and let
+    # the second instance die loudly instead.
+    # POSIX keeps reuse on: there a duplicate LISTEN bind is refused anyway, and
+    # turning it off would make a restart trip over the old socket's TIME_WAIT.
+    allow_reuse_address = sys.platform != "win32"
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8")   # cp949 consoles can't encode our logs
     except Exception:
         pass
+    # Bind before starting the poller: a duplicate instance should die without
+    # having touched the device — it has ~20 KB of heap and one stream client.
+    try:
+        srv = Panel(("127.0.0.1", PORT), Handler)
+    except OSError as e:
+        # Loud and fatal on purpose — see Panel.allow_reuse_address.
+        print(f"control panel: port {PORT} is already in use, not starting ({e})", flush=True)
+        return 1
     threading.Thread(target=poller, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"control panel: {url}  (device {HOST})", flush=True)
     if not NO_BROWSER:      # the widget starts us at login; don't pop a tab every boot
@@ -640,4 +660,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
