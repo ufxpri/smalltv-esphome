@@ -177,3 +177,32 @@ because it already had those files open. Two independent fixes, both applied:
   spawned frozen child extracts its **own** `_MEI`. Verify with `lsof -p <pid> | grep _MEI` —
   widget-worker, panel-worker, and stream-worker must show **three distinct** dirs; then
   reaping one no longer kills the others. (No-op from source, where those vars are unset.)
+
+**Panel "already running" while nothing is listening — ownership by process name
+(2026-09-17).** Symptom on Windows after a widget rebuild + restart: no UI at all. The
+widget process is alive, **nothing listens on `:8787`**, and the only log line is
+`panel already running`. Root cause: `panel.is_running()` asked *"is there a
+`control_panel.py` process?"*, and `stream.procs_for` matches by **basename alone** — so
+two unrelated things answered yes: a stale orphan of our own, and **another project's**
+`~/ledmatrix/control_panel.py`. `start()` therefore did nothing, forever. Three fixes,
+all applied:
+- **Liveness is the port answering, never the process table** (`widget/panel.py:
+  is_running()`). It re-probes before concluding "dead": the probe has a 2 s timeout and
+  the caller *kills processes* on a "no", so one timeout under load must not be enough.
+- **Ownership is a pid file pinned by the process's creation time** (`panel.pid`, next to
+  `config.json`). A bare pid is not an identity — pids get recycled and you would
+  terminate a stranger. `_is_ours()` (full script path, relative argv resolved against
+  *that process's* cwd, never ours) stays as the fallback for panels we have no record
+  of, e.g. one started by hand.
+- **The orphan factory:** Windows' `SO_REUSEADDR` is not POSIX's. A second process can
+  bind an already-bound port, and the **first** binder keeps receiving the connections —
+  so the duplicate lives on, looking started, serving nobody. `control_panel.py` now sets
+  `allow_reuse_address = False` on Windows (POSIX keeps it, or restarts trip over
+  TIME_WAIT) and exits 1 loudly.
+
+⚠️ Two things not to re-learn the hard way: `SO_REUSEADDR` **was not the cause of the
+outage**, only of the orphan — don't re-file it as the root cause. And `stream.procs_for`
+**still matches by basename**; that is safe only because our source scripts have unique
+names, so don't add a generically-named one. When a supervisor and a server disagree,
+check `netstat -ano | findstr <port>` and the full `CommandLine` of every matching
+process *first* — that pair identifies this class of bug in seconds.
