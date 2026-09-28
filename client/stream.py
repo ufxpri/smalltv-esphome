@@ -4,7 +4,7 @@ accepts a single stream client); `off` stops streaming so the device falls back
 to its local clock page.
 
     python stream.py furnace              # CPU-load furnace
-    python stream.py stickers             # OGQ sticker slideshow
+    python stream.py stickers             # GIF slideshow (your own files in the gif dir)
     python stream.py stocks AAPL MSFT     # candlestick chart, cycling tickers
     python stream.py sectors              # S&P sector heatmap
     python stream.py claude               # Claude usage burn monitor
