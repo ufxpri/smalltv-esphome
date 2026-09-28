@@ -12,12 +12,12 @@
     <style>
       .panel   { fill: #15171c; stroke: #2b2f38; stroke-width: 1; }
       .box     { fill: #1b1e25; stroke: #343a45; stroke-width: 1; }
-      .lbl     { fill: #6d7787; font-size: 10.5px; letter-spacing: 1.6px; font-weight: 600; }
-      .h       { fill: #e8e4dc; font-size: 13px; font-weight: 600; }
-      .m       { fill: #cfd6de; font-size: 11.5px;
+      .lbl     { fill: #6d7787; font-size: 11.5px; letter-spacing: 1.6px; font-weight: 600; }
+      .h       { fill: #e8e4dc; font-size: 14.5px; font-weight: 600; }
+      .m       { fill: #cfd6de; font-size: 13px;
                  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .s       { fill: #96a0ad; font-size: 11px; }
-      .xs      { fill: #737d8b; font-size: 10px; }
+      .s       { fill: #96a0ad; font-size: 12.5px; }
+      .xs      { fill: #737d8b; font-size: 11.5px; }
       .edge    { stroke: #5c6773; stroke-width: 1.4; fill: none; }
       .edge-d  { stroke: #5c6773; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
       .claude  { fill: #d97757; }
@@ -32,7 +32,7 @@
 
   <rect width="1240" height="660" fill="#0d0f13"/>
 
-  <text x="40" y="44" class="h" font-size="19">SmallTV-Ultra — what draws each pixel, and where it comes from</text>
+  <text x="40" y="44" class="h" font-size="21">SmallTV-Ultra — what draws each pixel, and where it comes from</text>
   <text x="40" y="68" class="s">Rich screens are rendered on the PC and streamed as changed tiles; the device keeps a lean local page set so it still works alone.</text>
 
   <!-- ─────────── providers ─────────── -->
@@ -47,7 +47,7 @@
   <rect x="58" y="216" width="222" height="66" rx="6" class="box"/>
   <text x="72" y="238" class="m codex">chatgpt.com</text>
   <text x="72" y="256" class="xs">/backend-api/wham/usage</text>
-  <text x="72" y="272" class="xs">cookie: __Secure-next-auth.session-token</text>
+  <text x="72" y="272" class="xs">cookie: __Secure-next-auth.…</text>
 
   <rect x="40" y="326" width="258" height="92" rx="8" class="panel"/>
   <text x="58" y="352" class="lbl">CHROME EXTENSION</text>
