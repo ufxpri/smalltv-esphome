@@ -98,8 +98,7 @@ def save_secret(session_key, org_id=""):
         raise ValueError("세션 키가 비어 있습니다")
     if not org_id:
         org_id = fetch_org_id(session_key)
-    SESSION_FILE.write_text(json.dumps({"org_id": org_id, "session_key": session_key}, indent=2))
-    os.chmod(SESSION_FILE, 0o600)
+    cfg_mod.write_private(SESSION_FILE, json.dumps({"org_id": org_id, "session_key": session_key}, indent=2))
     return org_id
 
 

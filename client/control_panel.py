@@ -49,6 +49,8 @@ GIFDIR = stream.gif_dir()
 VIDDIR = stream.video_dir()
 MODE = os.path.join(TELEM, "mode.json")
 PORT = 8787
+_LOCAL_HOSTS = {f"{h}:{PORT}" for h in ("127.0.0.1", "localhost", "[::1]")}
+_LOCAL_ORIGINS = {f"http://{h}" for h in _LOCAL_HOSTS}
 LOG = logging.getLogger("panel")
 # Derived from stream.SOURCES so a new source only has to be registered once.
 SCRIPT_TO_KEY = {v: k for k, v in stream.SOURCES.items()}
@@ -633,18 +635,42 @@ class Handler(BaseHTTPRequestHandler):
 
         It posts the session cookies it reads from the browser to /claude_key
         and /codex_key, and needs the JSON back to say whether the key took.
-        The header is echoed only for chrome-extension:// origins: a web page
-        could already fire a form-urlencoded POST here without one (it just
-        can't read the reply), so this widens nothing for the web — and the
-        server binds loopback only. A bogus key still can't overwrite a good
-        one, since both key handlers validate against the provider first.
+        The header is echoed only for chrome-extension:// origins; web pages
+        are turned away before this by _trusted(). A bogus key still can't
+        overwrite a good one, since both key handlers validate against the
+        provider first.
         """
         origin = self.headers.get("Origin", "")
         if origin.startswith("chrome-extension://"):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
 
+    def _trusted(self):
+        """Refuse requests that didn't come from this machine's panel page,
+        the extension, or a plain local client (the widget's probe, curl).
+
+        Binding 127.0.0.1 stops other machines, not other *websites*: any page
+        open in the user's browser can make that browser send to 127.0.0.1:8787.
+        Host catches DNS rebinding (a page whose own domain was re-pointed here
+        carries that domain in Host); Origin catches cross-site POSTs, which
+        browsers always label. No Origin at all means a non-browser client.
+        """
+        host = self.headers.get("Host", "")
+        if host not in _LOCAL_HOSTS:
+            return False
+        origin = self.headers.get("Origin")
+        return (origin is None or origin in _LOCAL_ORIGINS
+                or origin.startswith("chrome-extension://"))
+
+    def _refuse(self):
+        LOG.warning("refused %s %s (Host=%r Origin=%r)", self.command,
+                    self.path.split("?")[0], self.headers.get("Host"),
+                    self.headers.get("Origin"))
+        self._send(403, "text/plain", b"forbidden")
+
     def do_OPTIONS(self):
+        if not self._trusted():
+            return self._refuse()
         # Form-urlencoded POSTs are CORS-simple and never preflight, so this is
         # only here so a future JSON body doesn't fail mysteriously.
         self.send_response(204)
@@ -658,6 +684,8 @@ class Handler(BaseHTTPRequestHandler):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
 
     def do_GET(self):
+        if not self._trusted():
+            return self._refuse()
         p = urllib.parse.urlparse(self.path).path
         if p == "/":
             self._send(200, "text/html; charset=utf-8", PAGE.encode())
@@ -717,6 +745,8 @@ class Handler(BaseHTTPRequestHandler):
         return {k: v[0] for k, v in urllib.parse.parse_qs(raw).items()}
 
     def do_POST(self):
+        if not self._trusted():
+            return self._refuse()
         p = urllib.parse.urlparse(self.path).path
         qs = self.q()
         # The session key rides in the POST body (not the URL) so it stays out of

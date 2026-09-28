@@ -109,8 +109,7 @@ def save_secret(session_token):
     if not session_token:
         raise ValueError("세션 쿠키가 비어 있습니다")
     raw = fetch_raw(session_token=session_token)          # validates before saving
-    SESSION_FILE.write_text(json.dumps({"session_token": session_token}, indent=2))
-    os.chmod(SESSION_FILE, 0o600)
+    cfg_mod.write_private(SESSION_FILE, json.dumps({"session_token": session_token}, indent=2))
     return raw.get("plan_type") or ""
 
 

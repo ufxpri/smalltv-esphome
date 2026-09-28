@@ -17,11 +17,11 @@ from pathlib import Path
 
 APP_NAME = "SmallTVWidget"
 
-# device_ip stays an address rather than `smalltv-ultra.local`: the hostname is
-# DHCP-stable but mDNS does not resolve on every box (it fails on Windows here),
-# so a literal address is the safer first-run default. Edit it in the panel.
+# device_ip defaults to the firmware's mDNS name. mDNS does not resolve on every
+# box (it fails on some Windows setups), so if the panel shows the device as
+# unreachable, set its literal address there — that value is saved and wins.
 DEFAULTS = {
-    "device_ip": "192.168.219.112",
+    "device_ip": "smalltv-ultra.local",
     "start_at_login": False,
     "tickers": ["AAPL"],        # the stocks source cycles these
     "ticker_rotate": 15.0,      # seconds per ticker
@@ -74,6 +74,20 @@ def load() -> dict:
         user = {}
     merged = _deep_merge(DEFAULTS, user)
     return {k: merged[k] for k in DEFAULTS}
+
+
+def write_private(path: Path, text: str) -> None:
+    """Write a secret file that is 0600 from its first byte.
+
+    write_text() then chmod() leaves a window where the key sits at the umask
+    default (usually world-readable). os.open with a mode creates it private;
+    the rename swaps it in whole, so a reader never sees a half-written key.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 def save(cfg: dict) -> None:
