@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 660" width="1240" height="660"
+     font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+     role="img" aria-labelledby="t d">
+  <title id="t">SmallTV-Ultra system architecture</title>
+  <desc id="d">Session cookies authenticate the PC host against the Claude and Codex usage
+    APIs. The host turns each reading into an observed burn curve, renders a 240x240 frame,
+    and streams only the changed 12-pixel tiles over TCP to the ESP8266, which blits them to
+    its ST7789V panel and falls back to its own local pages when no client is connected.</desc>
+
+  <defs>
+    <style>
+      .panel   { fill: #15171c; stroke: #2b2f38; stroke-width: 1; }
+      .box     { fill: #1b1e25; stroke: #343a45; stroke-width: 1; }
+      .lbl     { fill: #6d7787; font-size: 10.5px; letter-spacing: 1.6px; font-weight: 600; }
+      .h       { fill: #e8e4dc; font-size: 13px; font-weight: 600; }
+      .m       { fill: #cfd6de; font-size: 11.5px;
+                 font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .s       { fill: #96a0ad; font-size: 11px; }
+      .xs      { fill: #737d8b; font-size: 10px; }
+      .edge    { stroke: #5c6773; stroke-width: 1.4; fill: none; }
+      .edge-d  { stroke: #5c6773; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .claude  { fill: #d97757; }
+      .codex   { fill: #1aaa86; }
+      .warn    { fill: #e0a33f; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5c6773"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="660" fill="#0d0f13"/>
+
+  <text x="40" y="44" class="h" font-size="19">SmallTV-Ultra — what draws each pixel, and where it comes from</text>
+  <text x="40" y="68" class="s">Rich screens are rendered on the PC and streamed as changed tiles; the device keeps a lean local page set so it still works alone.</text>
+
+  <!-- ─────────── providers ─────────── -->
+  <rect x="40" y="100" width="258" height="196" rx="8" class="panel"/>
+  <text x="58" y="126" class="lbl">PROVIDERS</text>
+
+  <rect x="58" y="140" width="222" height="66" rx="6" class="box"/>
+  <text x="72" y="162" class="m claude">claude.ai</text>
+  <text x="72" y="180" class="xs">/api/organizations/{org}/usage</text>
+  <text x="72" y="196" class="xs">cookie: sessionKey</text>
+
+  <rect x="58" y="216" width="222" height="66" rx="6" class="box"/>
+  <text x="72" y="238" class="m codex">chatgpt.com</text>
+  <text x="72" y="256" class="xs">/backend-api/wham/usage</text>
+  <text x="72" y="272" class="xs">cookie: __Secure-next-auth.session-token</text>
+
+  <rect x="40" y="326" width="258" height="92" rx="8" class="panel"/>
+  <text x="58" y="352" class="lbl">CHROME EXTENSION</text>
+  <text x="58" y="374" class="s">Reads both <tspan class="m" font-size="10.5">HttpOnly</tspan> cookies and posts</text>
+  <text x="58" y="392" class="s">them to the panel. Loopback only —</text>
+  <text x="58" y="410" class="s">no other host is reachable.</text>
+
+  <!-- ─────────── PC host ─────────── -->
+  <rect x="368" y="100" width="452" height="470" rx="8" class="panel"/>
+  <text x="388" y="126" class="lbl">PC HOST — ONE STREAM SOURCE AT A TIME</text>
+
+  <rect x="388" y="140" width="412" height="62" rx="6" class="box"/>
+  <text x="404" y="162" class="m">claudeusage · codexusage</text>
+  <text x="404" y="180" class="s">Fetch, authenticate, classify failures.</text>
+  <text x="404" y="195" class="xs">burnscreen.Feed polls every 10 s, off the render thread.</text>
+
+  <path d="M594,202 L594,224" class="edge" marker-end="url(#a)"/>
+
+  <rect x="388" y="228" width="412" height="66" rx="6" class="box"/>
+  <text x="404" y="250" class="m">burnmodel — observed curve + projection</text>
+  <text x="404" y="268" class="s">Each reading is appended to a per-window history file,</text>
+  <text x="404" y="284" class="s">so past bars are frozen observations, never redrawn.</text>
+
+  <path d="M594,294 L594,316" class="edge" marker-end="url(#a)"/>
+
+  <rect x="388" y="320" width="412" height="66" rx="6" class="box"/>
+  <text x="404" y="342" class="m">burnscreen — Screen.frame(t) -> 240×240</text>
+  <text x="404" y="360" class="s">Palette + mascot + feed. One layout and one verdict</text>
+  <text x="404" y="376" class="s">(BurnModel.state) shared by every usage screen.</text>
+
+  <path d="M594,386 L594,408" class="edge" marker-end="url(#a)"/>
+
+  <rect x="388" y="412" width="412" height="54" rx="6" class="box"/>
+  <text x="404" y="434" class="m">stream.py</text>
+  <text x="404" y="452" class="s">Starts exactly one source — the device takes one client.</text>
+
+  <rect x="388" y="486" width="198" height="64" rx="6" class="box"/>
+  <text x="404" y="508" class="m" font-size="11">control_panel :8787</text>
+  <text x="404" y="526" class="xs">source, brightness, keys,</text>
+  <text x="404" y="541" class="xs">live monitor, logs</text>
+
+  <rect x="602" y="486" width="198" height="64" rx="6" class="box"/>
+  <text x="618" y="508" class="m" font-size="11">tray widget</text>
+  <text x="618" y="526" class="xs">keeps the panel up,</text>
+  <text x="618" y="541" class="xs">starts it at login</text>
+
+  <!-- ─────────── device ─────────── -->
+  <rect x="890" y="100" width="310" height="470" rx="8" class="panel"/>
+  <text x="910" y="126" class="lbl">DEVICE — ESP8266 + ST7789V</text>
+
+  <rect x="910" y="140" width="270" height="62" rx="6" class="box"/>
+  <text x="926" y="162" class="m">st7789v tile server :6789</text>
+  <text x="926" y="180" class="s">Blits incoming tiles straight to</text>
+  <text x="926" y="195" class="s">the fractional framebuffer.</text>
+
+  <path d="M1045,202 L1045,228" class="edge" marker-end="url(#a)"/>
+
+  <rect x="910" y="232" width="270" height="130" rx="6" class="box"/>
+  <text x="926" y="254" class="m">240 × 240 panel</text>
+  <text x="926" y="272" class="xs">ST7789V over SPI, inversion on</text>
+  <rect x="1000" y="284" width="90" height="62" rx="3" fill="#0d0f13" stroke="#343a45"/>
+  <g>
+    <rect x="1008" y="330" width="9" height="10" class="claude"/>
+    <rect x="1021" y="322" width="9" height="18" class="claude"/>
+    <rect x="1034" y="311" width="9" height="29" class="claude"/>
+    <rect x="1047" y="303" width="9" height="37" fill="#e8e4dc"/>
+    <rect x="1060" y="296" width="9" height="44" fill="none" stroke="#d97757" stroke-dasharray="3 3"/>
+    <rect x="1073" y="292" width="9" height="48" fill="none" stroke="#d97757" stroke-dasharray="3 3"/>
+  </g>
+
+  <path d="M1045,362 L1045,388" class="edge-d"/>
+  <text x="1055" y="379" class="xs">fallback when no client</text>
+
+  <rect x="910" y="392" width="270" height="62" rx="6" class="box"/>
+  <text x="926" y="414" class="m">local pages — clock, weather</text>
+  <text x="926" y="432" class="s">Run on the device, so it still shows</text>
+  <text x="926" y="447" class="s">something with the PC off.</text>
+
+  <rect x="910" y="476" width="270" height="74" rx="6" fill="#1e1a12" stroke="#4a3d22"/>
+  <text x="926" y="498" class="m warn" font-size="11">free heap ≈ 12 KB</text>
+  <text x="926" y="516" class="xs">Every flashed page costs RAM permanently;</text>
+  <text x="926" y="532" class="xs">a PC source costs the device nothing extra.</text>
+  <text x="926" y="546" class="xs">That asymmetry is the whole architecture.</text>
+
+  <!-- ─────────── edges between the three ─────────── -->
+  <path d="M298,198 L360,198" class="edge" marker-end="url(#a)"/>
+  <text x="304" y="188" class="xs">HTTPS · cookie</text>
+
+  <path d="M298,372 C336,372 340,518 380,518" class="edge" marker-end="url(#a)"/>
+
+  <path d="M820,300 L882,300" class="edge" marker-end="url(#a)"/>
+  <text x="851" y="292" class="xs" text-anchor="middle">tiles</text>
+
+  <path d="M882,340 L820,340" class="edge-d" marker-end="url(#a)"/>
+  <text x="851" y="332" class="xs" text-anchor="middle">REST</text>
+
+  <line x1="40" y1="600" x2="1200" y2="600" stroke="#22262e" stroke-width="1"/>
+  <text x="40" y="622" class="xs">
+    <tspan class="s" font-size="10.5">tiles</tspan> — only the 12×12 cells that changed, RGB565 over TCP :6789; about 9.5 fps and 40–60 KB/s in practice.
+    <tspan class="s" font-size="10.5" dx="14">REST</tspan> — the panel polls :80 for free heap, uptime and RSSI to drive its monitor.
+  </text>
+  <text x="40" y="640" class="xs">A stream client takes the whole screen while connected; on disconnect the device returns to its own pages within a few seconds.</text>
+</svg>
