@@ -45,8 +45,10 @@ a = Analysis(
     # so name them explicitly or PyInstaller won't bundle them.
     hiddenimports=[
         "smalltv", "widget", "config", "stream", "marketdata", "claudeusage",
+        "codexusage", "burnscreen", "burnmodel",
         "control_panel", "smalltv_stream",
-        "stream_stocks", "stream_sectors", "stream_claude", "stream_gif", "stream_video",
+        "stream_stocks", "stream_sectors", "stream_claude", "stream_codex", "stream_usage",
+        "stream_gif", "stream_video",
         "pystray", "PIL", "psutil", "numpy",
     ] + _cc_hidden,
     hookspath=[],

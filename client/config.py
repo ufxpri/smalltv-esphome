@@ -27,6 +27,9 @@ DEFAULTS = {
     "ticker_rotate": 15.0,      # seconds per ticker
     "brightness": 70,           # backlight %; the panel shows it without waiting on the device
     "claude_gif": "",           # gif shown in the claude usage screen's box (name in gif_dir)
+    "codex_gif": "",            # ...and in the codex one's (both default to their mascot)
+    "usage_rotate": 20.0,       # seconds per screen when the two usage screens alternate
+    "log_level": "INFO",        # DEBUG adds the per-poll numbers; see logs.py
 }
 
 

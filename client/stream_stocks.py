@@ -9,6 +9,7 @@ panels: price (candles + MA5/MA20 + Bollinger bands), volume, and RSI(14).
 Pass several tickers to cycle them; each shows for --rotate seconds (default
 15). Tickers are anything Yahoo knows: AAPL, MSFT, 005930.KS, BTC-USD ...
 """
+import logging
 import os
 import sys
 import time
@@ -17,6 +18,9 @@ from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import logs                              # noqa: E402
+
+_log = logging.getLogger("stocks")
 import marketdata as md                                   # noqa: E402
 from smalltv_stream import CLAUDE, PORT, SS, H, Streamer, W, font, resolve_host  # noqa: E402
 
@@ -227,8 +231,9 @@ def parse_args(argv):
 
 
 def main():
+    logs.setup("stocks")
     tickers, host, rotate = parse_args(sys.argv[1:])
-    print(f"tickers: {', '.join(tickers)}"
+    _log.info(f"tickers: {', '.join(tickers)}"
           + (f"  (rotating every {rotate:.0f}s)" if len(tickers) > 1 else ""))
 
     s = Streamer(resolve_host(host), PORT)
@@ -246,10 +251,10 @@ def main():
                     try:
                         quotes[sym] = md.fetch_quote(sym)
                         q = quotes[sym]
-                        print(f"  {sym:10} {q.price:>12,.2f} {q.pct:+.2f}% "
+                        _log.info(f"  {sym:10} {q.price:>12,.2f} {q.pct:+.2f}% "
                               f"[{q.session}] ({len(q.candles)} candles)")
                     except Exception as e:                # keep the last good frame up
-                        print(f"  {sym:10} fetch error: {e}")
+                        _log.info(f"  {sym:10} fetch error: {e}")
                     fetched[sym] = frame_start
                 if sym in quotes:
                     s.push(render(quotes[sym], idx, len(tickers)))
@@ -257,7 +262,7 @@ def main():
                 if dt > 0:
                     time.sleep(dt)
         except OSError as e:
-            print(f"\n[stocks] disconnected: {e}; retrying in 3s")
+            _log.info(f"\n[stocks] disconnected: {e}; retrying in 3s")
             try:
                 if s.sock:
                     s.sock.close()

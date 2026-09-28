@@ -7,6 +7,7 @@ Pass `--debug` to outline each transmitted patch in cycling colours.
 
     python stream_video.py <file> [device_ip] [loops] [--debug]
 """
+import logging
 import os
 import subprocess
 import sys
@@ -40,16 +41,17 @@ def decode_frames(path):
 
 
 def main():
+    logs.setup("video")
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     debug = "--debug" in sys.argv
     path = args[0]
     host = resolve_host(args[1] if len(args) > 1 else None)
     loops = int(args[2]) if len(args) > 2 else 3
 
-    print("decoding video ...", flush=True)
+    _log.info("decoding video ...")
     frames = decode_frames(path)
     n = len(frames)
-    print(f"{n} frames @ {EXTRACT_FPS}fps ({n / EXTRACT_FPS:.1f}s)", flush=True)
+    _log.info(f"{n} frames @ {EXTRACT_FPS}fps ({n / EXTRACT_FPS:.1f}s)", flush=True)
 
     s = Streamer(host, 6789, debug=debug)
     s.connect()
@@ -65,8 +67,8 @@ def main():
                 shown += 1
                 last = idx
         el = time.time() - t0
-        print(f"loop {loop + 1}/{loops}: {shown}/{n} frames  -> {shown / el:.1f} fps", flush=True)
-    print("done")
+        _log.info(f"loop {loop + 1}/{loops}: {shown}/{n} frames  -> {shown / el:.1f} fps", flush=True)
+    _log.info("decode done")
 
 
 if __name__ == "__main__":

@@ -7,13 +7,22 @@ stock firmware with a fully controllable, self-updating (OTA) info display.
 > ⚠️ **Private repo recommended.** `secrets.yaml` and `*.bin` are git-ignored because
 > compiled firmware bakes in your Wi-Fi/OTA passwords. Never commit them.
 
+<p align="center">
+  <img src="docs/usage-claude.png" width="300" alt="Claude usage screen: a burn histogram of the 5-hour window with a projection, RUNOUT racing RESET IN, and a weekly bar">
+  <img src="docs/usage-codex.png" width="300" alt="The same screen for Codex, in teal, with a pixel-art terminal instead of the Claude mascot">
+</p>
+<p align="center"><sub><b>Usage monitors</b> — Claude and Codex, rendered on the PC and streamed to the
+device. One screen, one palette each: solid bars are measured, dashed ones are the projection,
+and RUNOUT is when that projection hits the limit.</sub></p>
+
 ## Features
 - **Hybrid display**: a lean set of **local pages** (clock, weather) runs on the
   device so it works with the PC off — while anything rich is **rendered on the PC**
   and streamed to the device as changed tiles. Local pages cost the ESP8266's scarce
   RAM permanently; PC sources cost it nothing per-source, so that's where the good
   stuff lives.
-- **PC sources**: live candlestick charts (MA/Bollinger/volume/RSI, cycling tickers),
+- **PC sources**: **Claude / Codex usage burn monitors** (above — either alone, or the
+  two alternating), live candlestick charts (MA/Bollinger/volume/RSI, cycling tickers),
   S&P sector heatmap, a CPU-load furnace, GIF slideshows, video playback.
 - **Control panel** (`client/control_panel.py`) — a local web UI to switch sources,
   set brightness, and watch a live monitor (screen mirror, patch heatmap, fps/heap).

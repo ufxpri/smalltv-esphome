@@ -14,6 +14,7 @@ A zero-size header (0,0,0,0) is a heartbeat that keeps the stream "active".
 """
 import functools
 import io
+import logging
 import json
 import math
 import os
@@ -31,6 +32,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 # path for every process in the stack (streamers write, the panel reads), so it
 # is derived rather than hardcoded: /tmp/smalltv on Mac, %TEMP%\smalltv on Windows.
 TELEM_DIR = os.path.join(tempfile.gettempdir(), "smalltv")
+_log = logging.getLogger("stream")
 
 
 class Telemetry:
@@ -50,7 +52,8 @@ class Telemetry:
         try:
             self._record(cur, changed_grid, blits, nbytes)
         except Exception as e:
-            print(f"\n[telemetry] write failed: {e}")
+            # Best-effort: the monitor going blind must never take the stream down.
+            _log.debug("telemetry write failed: %s", e)
 
     def _record(self, cur, changed_grid, blits, nbytes):
         now = time.time()
@@ -319,7 +322,7 @@ class Streamer:
         self.sock = socket.create_connection((self.host, self.port), timeout=6)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.prev = None
-        print(f"connected to {self.host}:{self.port}")
+        _log.info("connected to %s:%s", self.host, self.port)
 
     def _read_mode(self):
         now = time.time()
@@ -427,12 +430,18 @@ def main():
                 n = s.push(render(cpu, t))
                 # dynamic fps: scale with CPU load (idle -> FPS_MIN, busy -> FPS_MAX)
                 fps = FPS_MIN + (cpu / 100.0) * (FPS_MAX - FPS_MIN)
-                print(f"cpu {cpu:5.1f}%  fps {fps:4.1f}  tiles {n:2d}   ", end="\r", flush=True)
+                # A live status line only makes sense on a terminal; spawned by
+                # the widget this would write a carriage return per frame into
+                # the crash catch-all.
+                if sys.stdout.isatty():
+                    print(f"cpu {cpu:5.1f}%  fps {fps:4.1f}  tiles {n:2d}   ", end="\r", flush=True)
+                else:
+                    _log.debug("cpu=%.1f%% fps=%.1f tiles=%d", cpu, fps, n)
                 dt = (1.0 / fps) - (time.time() - frame_start)
                 if dt > 0:
                     time.sleep(dt)
         except (OSError, socket.error) as e:
-            print(f"\n[stream] disconnected: {e}; retrying in 3s")
+            _log.warning("disconnected: %s; retrying in 3s", e)
             try:
                 if s.sock:
                     s.sock.close()

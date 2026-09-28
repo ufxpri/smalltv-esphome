@@ -10,6 +10,7 @@ you click to open the panel.
 launched as a separate process so it wouldn't fight the tray's GUI main thread
 on macOS — that fight is why the UI moved to the browser.)
 """
+import logging
 import sys
 import threading
 import time
@@ -18,6 +19,7 @@ import webbrowser
 import pystray
 
 import config as cfg_mod
+import logs
 
 from . import assets
 from . import autostart
@@ -37,7 +39,10 @@ class Manager:
         self.heap = None            # device free heap in bytes, per the panel
 
     def log(self, msg):
-        print(time.strftime("%H:%M:%S"), msg, flush=True)
+        """Supervisor events — starts, stops, failures. There are few of them,
+        so they all belong at INFO; the widget's log is the one you read when
+        the panel did not come up."""
+        logging.getLogger("widget").info(msg)
 
     # ---- panel lifecycle ----
     def start_panel(self):
@@ -153,6 +158,7 @@ def build_menu(m: Manager):
 
 
 def main():
+    logs.setup("widget")
     try:
         sys.stdout.reconfigure(encoding="utf-8")   # cp949 consoles can't encode our logs
     except Exception:

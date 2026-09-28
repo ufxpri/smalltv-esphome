@@ -28,6 +28,8 @@ RUNNABLE = (
     "stream_stocks.py",
     "stream_sectors.py",
     "stream_claude.py",
+    "stream_codex.py",
+    "stream_usage.py",
     "stream_gif.py",
     "stream_video.py",
 )

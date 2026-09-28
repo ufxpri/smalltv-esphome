@@ -6,6 +6,7 @@ The PC-rendered replacement for the on-device Sectors page: a 3x4 grid of the
 
     python stream_sectors.py [device_ip]
 """
+import logging
 import os
 import sys
 import time
@@ -15,6 +16,9 @@ from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import logs                              # noqa: E402
+
+_log = logging.getLogger("sectors")
 import marketdata as md                                   # noqa: E402
 from smalltv_stream import PORT, SS, H, Streamer, W, font, resolve_host  # noqa: E402
 
@@ -93,11 +97,12 @@ def _safe_pct(sym):
     try:
         return md.fetch_pct(sym)
     except Exception as e:
-        print(f"  {sym:6} error: {e}")
+        _log.info(f"  {sym:6} error: {e}")
         return None
 
 
 def main():
+    logs.setup("sectors")
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     s = Streamer(resolve_host(args[0] if args else None), PORT)
     pcts, fetched = {}, 0.0
@@ -110,7 +115,7 @@ def main():
                     new = fetch_all()
                     if new:                       # keep the last good frame on a total failure
                         pcts = new
-                        print(f"  {len(pcts)}/{len(md.SECTORS)} sectors  "
+                        _log.info(f"  {len(pcts)}/{len(md.SECTORS)} sectors  "
                               f"SPY {pcts.get('SPY', float('nan')):+.2f}%")
                     fetched = frame_start
                 if pcts:
@@ -119,7 +124,7 @@ def main():
                 if dt > 0:
                     time.sleep(dt)
         except OSError as e:
-            print(f"\n[sectors] disconnected: {e}; retrying in 3s")
+            _log.info(f"\n[sectors] disconnected: {e}; retrying in 3s")
             try:
                 if s.sock:
                     s.sock.close()

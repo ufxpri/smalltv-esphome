@@ -26,3 +26,6 @@ __pycache__/
 
 # Downloaded sticker/GIF assets
 /client/gifs/
+
+# macOS finder droppings
+.DS_Store

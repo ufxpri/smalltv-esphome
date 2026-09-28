@@ -49,11 +49,37 @@ no component teardown, so `mode` switching is *not* isolation.
   - `smalltv_stream.py` — the streaming library (`Streamer`, `resolve_host`, fonts)
     and the furnace source; `stream_stocks/sectors/gif/video.py` — other sources;
     `marketdata.py` — shared Yahoo fetch layer.
+  - `burnscreen.py` (layout, `Screen`, `Feed`, the `run()` loop) + `burnmodel.py`
+    (`BurnModel` base, observed curve + projection) — the usage burn monitor.
+    A screen is a `burnscreen.Screen`: palette + mascot + feed + badge, nothing
+    else; `stream_claude.py` / `stream_codex.py` each build one, and
+    `stream_usage.py` hands both to `run()`, which rotates them on the one stream
+    client the device allows. **The verdict (`BurnModel.state`) and the layout
+    each exist once** — a feed subclasses `burnmodel.BurnModel` and may override
+    only `live`. `claudeusage.py` = claude.ai
+    limits API + `sessionKey`; `codexusage.py` = chatgpt.com
+    `/backend-api/wham/usage` + `__Secure-next-auth.session-token` (`wham` is the
+    backend's name for Codex), falling back to local `~/.codex` logs only when no
+    cookie is saved. Edits to layout go in `burnscreen`, to the curve in
+    `burnmodel` — the two screens are meant to stay identical apart from color.
   - `stream.py` — runs exactly one source at a time (the device takes one client).
   - `control_panel.py` — **the UI**: local web page (`:8787`) for sources, brightness,
     tickers, device address, and a live monitor. Also the settings page.
   - `widget/` + `smalltv_widget.py` — tray app that only supervises the panel
     (start/stop, status, open, start-at-login); `build/` packages it to .exe/.app.
+  - `extension/` — Chrome (MV3) extension that reads the two `HttpOnly` session
+    cookies (`claude.ai` sessionKey, `chatgpt.com` NextAuth token) and posts them
+    to the panel's `/claude_key` / `/codex_key`. Narrow on purpose: `cookies` +
+    `storage`, three hosts, loopback-only posting — see `client/extension/README.md`
+    before widening anything there.
+  - `logs.py` — **logging for every client process.** One rotating file per
+    process (4 MB cap), `MM-DD HH:MM:SS L name: msg`, level from
+    `SMALLTV_LOG_LEVEL` / config `log_level`. Routine per-poll output is DEBUG;
+    INFO means something changed. `logs.Collapse` refuses to write the same line
+    twice in a row — before it existed one stuck retry wrote 92,150 of
+    `claude.log`'s 644,678 lines, and the file had grown to 29 MB with no
+    timestamps. **Use `logging`, never `print()`**, except for CLI output in
+    `stream.py` and the `__main__` blocks. `python stream.py logs [name]` tails.
   - `config.py` — shared config for the widget + panel.
 - `components/st7789v/` — local patched fractional-framebuffer ST7789 driver (INVON).
 - `costs.json` — measured per-page RAM/Flash cost (for `build.py budget`).

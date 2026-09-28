@@ -7,9 +7,13 @@ to its local clock page.
     python stream.py stickers             # OGQ sticker slideshow
     python stream.py stocks AAPL MSFT     # candlestick chart, cycling tickers
     python stream.py sectors              # S&P sector heatmap
+    python stream.py claude               # Claude usage burn monitor
+    python stream.py codex                # Codex usage burn monitor
+    python stream.py usage                # both, alternating
     python stream.py video <file>         # play a video file
     python stream.py off                  # stop streaming (-> local clock)
     python stream.py status               # show what's running
+    python stream.py logs [source] [-n N]  # tail a source's log
 
 Add `--host <ip>` to target a device other than the default; sources also read
 SMALLTV_HOST, which is how the control panel points them at the right device.
@@ -17,11 +21,12 @@ SMALLTV_HOST, which is how the control panel points them at the right device.
 import os
 import subprocess
 import sys
-import tempfile
 
 import psutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import logs  # noqa: E402
 
 # Prefer the repo venv's interpreter; its layout differs per OS.
 _VENV = os.path.join(HERE, os.pardir, ".venv")
@@ -29,23 +34,21 @@ _PYS = [os.path.join(_VENV, "Scripts", "python.exe"),   # Windows
         os.path.join(_VENV, "bin", "python")]           # Mac/Linux
 PY = next((p for p in _PYS if os.path.exists(p)), sys.executable)
 
-if sys.platform == "darwin":
-    LOGDIR = os.path.expanduser("~/Library/Logs/SmallTVWidget")
-elif sys.platform == "win32":
-    LOGDIR = os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()),
-                          "SmallTVWidget", "Logs")
-else:
-    LOGDIR = os.path.expanduser("~/.local/state/smalltv/logs")
+LOGDIR = logs.LOGDIR      # `logs` owns the path; see logs.log_dir()
 
+SCRIPT_TO_KEY = {}        # filled in below, so `logs` can name the running source
 SOURCES = {
     "furnace": "smalltv_stream.py",
     "stickers": "stream_gif.py",
     "stocks": "stream_stocks.py",
     "sectors": "stream_sectors.py",
     "claude": "stream_claude.py",
+    "codex": "stream_codex.py",
+    "usage": "stream_usage.py",
     "video": "stream_video.py",
 }
 ALL = list(SOURCES.values())
+SCRIPT_TO_KEY.update({v: k for k, v in SOURCES.items()})
 
 
 # ---- process plumbing (shared with the widget, which supervises the panel) ----
@@ -129,11 +132,24 @@ def command(script, extra):
 
 
 def spawn(script, extra, log_name, env_extra=None):
-    """Launch a detached child that logs to LOGDIR and outlives this process."""
+    """Launch a detached child that logs to LOGDIR and outlives this process.
+
+    The child writes its real log itself, through `logs.setup()`, which rotates.
+    What is redirected here is only the raw stream: things that never reach
+    Python logging because the interpreter is not up yet — the reaped-`_MEI`
+    bug announced itself as `No module named 'encodings'` on stderr and nowhere
+    else. That file is capped below so a crash loop can't fill the disk.
+    """
     os.makedirs(LOGDIR, exist_ok=True)
+    err_path = os.path.join(LOGDIR, f"{log_name}.err.log")
+    try:      # keep the previous crash, drop anything older
+        if os.path.getsize(err_path) > 256_000:
+            os.replace(err_path, err_path + ".1")
+    except OSError:
+        pass
     # utf-8: the default console encoding on a Korean Windows box is cp949, which
     # cannot encode the em dash / arrows these scripts log.
-    log = open(os.path.join(LOGDIR, f"{log_name}.log"), "a", encoding="utf-8")
+    log = open(err_path, "a", encoding="utf-8")
     env = {**os.environ, **(env_extra or {})}
     # Frozen onefile: the bootloader passes _MEIPASS2 (and _PYI_* on PyInstaller 6+)
     # to a re-exec'd child so it reuses the parent's _MEIxxxx extraction instead of
@@ -186,6 +202,18 @@ def main():
     cmd = sys.argv[1]
     extra = sys.argv[2:]
 
+    if cmd == "logs":
+        n = 60
+        if "-n" in extra:
+            i = extra.index("-n")
+            n, extra = int(extra[i + 1]), extra[:i] + extra[i + 2:]
+        name = extra[0] if extra else (running() and SCRIPT_TO_KEY.get(running()[0]))
+        if not name:
+            print("logs available:", ", ".join(logs.names()) or "(none)")
+            return
+        for line in logs.tail(name, n):
+            print(line)
+        return
     if cmd == "status":
         r = running()
         print("streaming:", ", ".join(r) if r else "(none — device shows local clock)")

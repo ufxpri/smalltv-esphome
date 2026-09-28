@@ -8,6 +8,7 @@ pipe can't keep up). Each sticker shows for DISPLAY_SECS, looping, then the next
     python stream_gif.py [gif_dir] [device_ip]
 """
 import glob
+import logging
 import os
 import sys
 import time
@@ -16,6 +17,9 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import logs                              # noqa: E402
+
+_log = logging.getLogger("stickers")
 import stream                                              # noqa: E402
 from smalltv_stream import Streamer, resolve_host, to565   # noqa
 W = H = 240
@@ -56,6 +60,7 @@ def play(s, frames):
 
 
 def main():
+    logs.setup("stickers")
     argv = sys.argv[1:]
     pick = None
     if "--pick" in argv:
@@ -70,7 +75,7 @@ def main():
         paths = [p for p in paths if pick in os.path.basename(p)]
     if not paths:
         sys.exit(f"no GIFs in {gif_dir}" + (f" matching '{pick}'" if pick else ""))
-    print(f"loading {len(paths)} GIFs ...", flush=True)
+    _log.info(f"loading {len(paths)} GIFs ...", flush=True)
     gifs = [(os.path.basename(p), load_gif(p)) for p in paths]
 
     s = Streamer(host, 6789)
@@ -79,7 +84,7 @@ def main():
     i = 0
     while True:
         name, frames = gifs[i % len(gifs)]
-        print(f"▶ {name} ({len(frames)} frames)", flush=True)
+        _log.info(f"▶ {name} ({len(frames)} frames)", flush=True)
         play(s, frames)
         i += 1
 

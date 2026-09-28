@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>SmallTV Usage Keys</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>SmallTV 사용량 키</h1>
+  <p class="lede">브라우저에 로그인된 세션 쿠키를 읽어 로컬 패널에 저장합니다.</p>
+
+  <div id="rows"></div>
+
+  <div class="panel">
+    <label for="panel">패널 주소</label>
+    <div class="panelrow">
+      <input id="panel" type="text" spellcheck="false" placeholder="http://127.0.0.1:8787">
+      <button id="panelsave" type="button">저장</button>
+    </div>
+    <p class="note" id="panelnote">로컬 주소만 허용됩니다. 쿠키는 이 주소 외의 어디로도 전송되지 않습니다.</p>
+  </div>
+
+  <template id="row">
+    <div class="row">
+      <div class="head">
+        <span class="dot"></span>
+        <span class="label"></span>
+        <span class="cookie"></span>
+      </div>
+      <div class="status">확인 중…</div>
+      <div class="actions">
+        <button class="send" type="button">패널로 전송</button>
+        <button class="copy" type="button">복사</button>
+      </div>
+      <div class="result"></div>
+    </div>
+  </template>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
