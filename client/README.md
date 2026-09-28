@@ -150,7 +150,7 @@ how the reaped-`_MEI` bug showed itself). It is capped at 256 KB.
 
 ```python
 from smalltv import SmallTV
-tv = SmallTV("192.168.219.112")      # device IP (or hostname)
+tv = SmallTV("smalltv-ultra.local")  # device IP or mDNS hostname
 
 tv.set_mode("Clock")                  # local page; must be in the flashed build
 tv.backlight(0.5)                     # 0.0 – 1.0

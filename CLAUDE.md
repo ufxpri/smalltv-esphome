@@ -10,7 +10,7 @@ full control + self-hosted OTA. Current firmware = a Wi-Fi-safe clock; the goal 
 rich, self-updating info display.
 
 ## Hardware facts (verified)
-- **MCU**: ESP8266EX, single core 80/160 MHz, no FPU. MAC `48:3f:da:03:08:67`.
+- **MCU**: ESP8266EX, single core 80/160 MHz, no FPU.
 - **Flash**: 4 MB physical (built with `esp01_1m` 1 MB layout).
 - **RAM**: free heap is the tightest constraint — and TIGHTER than it looks. With
   the full page set (clock+stocks+sectors+worker) + web + api it's only **~7.6 KB**
@@ -82,11 +82,13 @@ no component teardown, so `mode` switching is *not* isolation.
     `stream.py` and the `__main__` blocks. `python stream.py logs [name]` tails.
   - `config.py` — shared config for the widget + panel.
 - `components/st7789v/` — local patched fractional-framebuffer ST7789 driver (INVON).
+  A modified copy of ESPHome's driver: it keeps ESPHome's license (C++ GPLv3), not the
+  repo's MIT — record changes in its `NOTICE`, never relicense it.
 - `costs.json` — measured per-page RAM/Flash cost (for `build.py budget`).
 - `secrets.yaml` — creds (**git-ignored**; copy from `secrets.yaml.example`).
 - `RULES.md` — **dev constitution + recovery net. Read before editing.**
 - `DESIGN.md` — **visual design guide** (canvas, palette, fonts, layout, perf-aware drawing). Read before styling a page.
-- `CAPABILITIES.md` — hardware limits. `firmware-v1.bin` — serial recovery image (git-ignored).
+- `CAPABILITIES.md` — hardware limits. Serial recovery image: any known-good `firmware.bin` from `build.py compile` (git-ignored).
 
 ## Build & deploy workflow — use tools/build.py
 `esphome` is not on PATH — the tool calls `python -m esphome` for you.
@@ -129,7 +131,7 @@ python tools/build.py measure <page>              # record a page's cost into co
 
 ### Last-resort serial recovery
 1. IO0(GPIO0)→GND, replug USB-C (download mode).
-2. `python -m esptool --port COM4 --before no-reset --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 firmware-v1.bin`
+2. `python -m esptool --port <serial-port> --before no-reset --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 <firmware.bin>`
 3. Remove IO0 jumper, reboot.
 
 ## History / hard-won lessons

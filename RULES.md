@@ -31,16 +31,16 @@
 
 ## C. 최후의 수단 (내장책이 다 실패했을 때만)
 
-- **시리얼 복구:** `firmware-v1.bin`(네트워크 전용) 보유.
+- **시리얼 복구:** `build.py compile`로 만든 정상 동작 이미지(`firmware.bin`)를 보관해 둘 것.
   1. IO0(GPIO0)→GND, USB-C 재삽입 (다운로드 모드)
-  2. `python -m esptool --port COM4 --before no-reset --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 firmware-v1.bin`
+  2. `python -m esptool --port <serial-port> --before no-reset --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 <firmware.bin>`
   3. IO0 점퍼 제거 후 재부팅
-- MAC `48:3f:da:03:08:67`, 플래시 4MB, ESP8266EX, CH340=COM4.
+- 플래시 4MB, ESP8266EX, USB-UART는 CH340 (Windows `COMx`, macOS `/dev/cu.usbserial-*`).
 
 ## D. 배포 체크리스트 (매번)
 
-- [ ] `python -m esphome compile smalltv-ultra.yaml` → RAM/Flash % 확인
+- [ ] `python tools/build.py compile <pages>` → RAM/Flash % 확인 (예산 초과 시 거부)
 - [ ] 무거운 로직에 `wifi.connected` 게이팅 있는지
 - [ ] `safe_mode`/`ota`/`wifi` 그대로 있는지
-- [ ] `python -m esphome upload smalltv-ultra.yaml --device <IP>` (compile 먼저! upload 단독은 재컴파일 안 함)
+- [ ] `python tools/build.py upload <pages> --device <IP>`
 - [ ] 업로드 후 30~60초 관찰: `uptime`이 60s를 넘겨 오르면 정상 (재부팅 루프 아님)

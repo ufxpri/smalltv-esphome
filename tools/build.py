@@ -8,7 +8,7 @@ compiles it, and reports RAM/Flash usage so you know if it fits BEFORE upload.
 Usage:
   python tools/build.py list
   python tools/build.py compile clock stocks
-  python tools/build.py upload  clock stocks --device 192.168.219.112
+  python tools/build.py upload  clock stocks --device <device-ip>
   python tools/build.py measure stocks          # record this page's cost
   python tools/build.py budget  clock stocks    # fast estimate from cache
 """

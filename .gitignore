@@ -29,3 +29,14 @@ __pycache__/
 
 # macOS finder droppings
 .DS_Store
+
+# Defensive: these all live outside the repo (per-user config dir), but a stray
+# copy dropped in here must never be committed.
+config.json
+*_session.json
+panel.pid
+*.log
+.env
+.env.*
+*.pem
+*.key

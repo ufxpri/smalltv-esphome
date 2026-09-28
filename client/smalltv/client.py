@@ -2,7 +2,7 @@
 ESPHome firmware. Talks to the device's web_server REST API (port 80).
 
     from smalltv import SmallTV
-    tv = SmallTV("192.168.219.112")
+    tv = SmallTV("smalltv-ultra.local")
     tv.set_mode("Clock")
     tv.backlight(0.5)
     tv.get_sensor("free_heap")

@@ -4,8 +4,5 @@
 # A frozen build bundles the control panel and the stream sources too (the exe
 # re-enters itself to run them — see stream.command), so their deps are needed
 # here even though the tray app alone wouldn't import them.
-pystray>=0.19
-Pillow>=9.0        # tray icon; stream source rendering
-psutil>=5.9        # process supervision; furnace CPU load
-numpy>=1.24        # stream source rendering
-curl_cffi>=0.7     # claude usage source: browser-fingerprinted HTTPS past Cloudflare
+-r requirements.txt
+pystray>=0.19      # tray icon

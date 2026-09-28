@@ -47,7 +47,7 @@ Everything else — sources, brightness, tickers, stickers, colour depth, the
 device address, the live monitor — lives in the panel.
 
 The widget reads its status from the panel's `/status` rather than polling the
-device itself, so only one process talks to a board with ~23 KB of free heap.
+device itself, so only one process talks to a board with ~12 KB of free heap.
 
 Config (shared with the panel, which is where it's edited) is stored at:
 - Windows `%APPDATA%\SmallTVWidget\config.json`

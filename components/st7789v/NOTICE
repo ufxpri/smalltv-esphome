@@ -1,0 +1,11 @@
+This component is derived from ESPHome's st7789v display driver:
+  https://github.com/esphome/esphome/tree/dev/esphome/components/st7789v
+Copyright (c) 2019 ESPHome. C++ files are GPLv3, Python files are MIT
+(see LICENSE in this directory, copied verbatim from ESPHome).
+
+Modifications in this copy:
+  - buffer fragmentation: the framebuffer is split into N horizontal strips
+    and the display lambda is re-run once per strip, so a 240x240 panel fits
+    in ESP8266 RAM
+  - INVON (inversion on) for this panel
+  - a TCP stream server that blits RGB565/RGB332 tiles pushed from a PC

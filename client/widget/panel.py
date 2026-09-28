@@ -211,7 +211,7 @@ def status():
     """The panel's cached view of the device, or None if the panel is down.
 
     Read from the panel rather than polled from the device directly: the panel
-    already polls it, and a second poller on a device with ~23 KB of free heap
+    already polls it, and a second poller on a device with ~12 KB of free heap
     is worth avoiding.
     """
     try:

@@ -1,3 +1,6 @@
+// Derived from ESPHome's st7789v component (https://github.com/esphome/esphome),
+// Copyright (c) 2019 ESPHome, licensed GPLv3. Modified: buffer fragmentation,
+// INVON, and a TCP tile-stream server. See NOTICE and LICENSE in this directory.
 #include "st7789v.h"
 #include "esphome/core/log.h"
 

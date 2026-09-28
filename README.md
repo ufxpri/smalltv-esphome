@@ -106,8 +106,20 @@ outside the repo. Its permissions cover two sites and loopback, and nothing else
 **Firmware** — flash once, then everything is over the air:
 
 ```sh
+pip install -r requirements.txt          # ESPHome, pinned — the patched driver tracks its internals
 cp secrets.yaml.example secrets.yaml     # your Wi-Fi + OTA passwords
 python tools/build.py list               # available local pages
+python tools/build.py compile clock weather
+```
+
+Set your timezone in `core.yaml` (`substitutions: timezone:`) first — it defaults to
+`Asia/Seoul`.
+
+*First flash, from the stock firmware:* open the device's web UI, go to `/update`, and
+upload `.esphome/build/smalltv-ultra/.pioenvs/smalltv-ultra/firmware.bin`. It reboots into
+ESPHome and joins your Wi-Fi as `smalltv-ultra`. From then on, OTA:
+
+```sh
 python tools/build.py upload clock weather --device <device-ip>
 ```
 
@@ -118,7 +130,7 @@ a display and a brick.
 **PC side** — the control panel is the UI:
 
 ```sh
-pip install pillow numpy psutil curl_cffi
+pip install -r client/requirements.txt  # Python 3.10+; video playback also needs ffmpeg
 python client/control_panel.py           # http://localhost:8787
 ```
 
@@ -139,6 +151,53 @@ header (CH340); see [CLAUDE.md](CLAUDE.md).
 
 > ⚠️ `secrets.yaml` and `*.bin` are git-ignored on purpose — compiled firmware bakes in
 > your Wi-Fi and OTA passwords. Never commit them.
+
+## Security model
+
+- **The device trusts your LAN.** OTA needs a password, but the ESPHome web UI (port 80),
+  the native API, and the stream port (6789) are unauthenticated: anyone on the same
+  network can change the brightness or put their own image on the screen. Keep it on a
+  network you trust, or add `web_server: auth:` and `api: encryption:` in `core.yaml`.
+- **The control panel is this computer only.** It binds `127.0.0.1`, and it refuses
+  requests whose `Host` isn't loopback or whose `Origin` isn't the panel itself or a browser
+  extension — so a web page open in your browser can't drive it through the browser.
+- **Session cookies stay on this machine.** They are written `0600` to the per-user config
+  directory (never the repo), sent only to the service they belong to, and never logged.
+
+## Disclaimer
+
+**Unofficial.** This project is not affiliated with, endorsed by, or sponsored by
+GeekMagic, Anthropic, or OpenAI. Claude and Claude Code are trademarks of Anthropic;
+ChatGPT, Codex and OpenAI are trademarks of OpenAI. The pixel-art mascots were drawn
+for this project and are not official artwork.
+
+**The usage screens extract your browser session cookie.** The Chrome extension reads
+the `HttpOnly` session cookie for claude.ai (`sessionKey`) and chatgpt.com
+(`__Secure-next-auth.session-token`) and hands it to the local control panel, which uses
+it to call those sites' **undocumented, internal** usage endpoints — through a
+browser-fingerprinting HTTP client, because both sit behind Cloudflare. Understand what
+that means before using it:
+
+- A session cookie is **your whole account**, not a read-only usage token. Anyone who
+  gets it can act as you until it expires or you sign out. Treat it like a password.
+- Automated access with a session cookie may be against the services' terms of use. You
+  are responsible for how you use it; use it only with **your own** account.
+- The endpoints are not public APIs. They can change or disappear without notice, and the
+  screens will break when they do.
+
+The stocks and sectors screens likewise use Yahoo Finance's unofficial endpoints. This
+software is provided as-is, without warranty of any kind — see [LICENSE](LICENSE).
+
+## License
+
+[MIT](LICENSE), with one exception: [`components/st7789v/`](components/st7789v/) is a
+modified copy of [ESPHome's st7789v display driver](https://github.com/esphome/esphome/tree/dev/esphome/components/st7789v)
+and keeps [ESPHome's license](https://github.com/esphome/esphome/blob/dev/LICENSE) — GPLv3
+for the C++ files, MIT for the Python. What was changed is listed in its
+[NOTICE](components/st7789v/NOTICE). Firmware you build links the rest of ESPHome's GPLv3
+runtime as well, so a compiled `firmware.bin` you distribute falls under the GPLv3.
+
+Built on [ESPHome](https://esphome.io) ([source](https://github.com/esphome/esphome)).
 
 ## Documentation
 

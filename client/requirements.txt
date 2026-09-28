@@ -1,0 +1,6 @@
+# Runtime deps for the control panel and the stream sources.
+# The `smalltv` REST library itself stays dependency-free.
+Pillow>=9.0        # stream source rendering
+numpy>=1.24        # stream source rendering
+psutil>=5.9        # process supervision; furnace CPU load
+curl_cffi>=0.7     # usage sources: browser-fingerprinted HTTPS past Cloudflare

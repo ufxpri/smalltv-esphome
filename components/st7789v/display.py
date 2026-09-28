@@ -1,3 +1,5 @@
+# Derived from ESPHome's st7789v component (https://github.com/esphome/esphome),
+# Copyright (c) 2019 ESPHome, MIT. Modified: fragmentation + stream_port options.
 from esphome import pins
 import esphome.codegen as cg
 from esphome.components import display, power_supply, spi

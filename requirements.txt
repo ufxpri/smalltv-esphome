@@ -1,0 +1,4 @@
+# Firmware toolchain for tools/build.py. Pinned: components/st7789v is a patched
+# copy of ESPHome's driver and leans on its internal display API, which moves
+# between releases. This is the version it was built and verified against.
+esphome==2025.7.5
