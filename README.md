@@ -42,13 +42,28 @@ it runs out.
 
 ## Screens
 
-| | |
-|:--:|:--|
-| <img src="docs/usage-claude.png" width="200" alt="Claude Code usage burn monitor"> | **Claude Code usage** — a burn histogram of the five-hour rate-limit window. Solid bars are measured, dashed bars are the projection, warming toward red as they approach the limit. Below, two deadlines race each other: **RUNOUT** (when the current burn rate reaches 100%) against **RESET IN**. The weekly limit runs along the bottom. Reads the claude.ai limits API. |
-| <img src="docs/usage-codex.png" width="200" alt="OpenAI Codex usage burn monitor"> | **Codex usage** — the same screen in teal, with a pixel-art terminal in the mascot box. Reads ChatGPT's own Codex usage API, so it reports your *account*: the machine running Codex does not have to be this one. A third source alternates the two on one connection. |
-| <img src="docs/src-stocks.png" width="200" alt="Candlestick chart with moving averages, Bollinger bands, volume and RSI"> | **Stocks** — candlesticks with moving averages, Bollinger bands, volume and RSI, cycling through a ticker list you set in the panel. Yahoo symbols, so KOSPI and crypto work too (`005930.KS`, `BTC-USD`). |
-| <img src="docs/src-sectors.png" width="200" alt="S&P sector heatmap"> | **S&P sectors** — the eleven SPDR sector ETFs plus SPY as a heatmap, with market breadth in the header. One glance tells you whether it was a broad day or one sector carrying it. |
-| <img src="docs/src-furnace.png" width="200" alt="CPU load rendered as a furnace fire"> | **CPU furnace** — your machine's load as a fire that grows and whitens as it climbs. Useless, and the first thing anyone asks about. |
+<table>
+  <tr>
+    <td width="230" align="center"><img src="docs/usage-claude.png" width="210" alt="Claude Code usage burn monitor"></td>
+    <td><b>Claude Code usage</b> — a burn histogram of the five-hour rate-limit window. Solid bars are measured, dashed bars are the projection, warming toward red as they approach the limit. Below, two deadlines race each other: <b>RUNOUT</b> (when the current burn rate reaches 100%) against <b>RESET IN</b>. The weekly limit runs along the bottom. Reads the claude.ai limits API.</td>
+  </tr>
+  <tr>
+    <td width="230" align="center"><img src="docs/usage-codex.png" width="210" alt="OpenAI Codex usage burn monitor"></td>
+    <td><b>Codex usage</b> — the same screen in teal, with a pixel-art terminal in the mascot box. Reads ChatGPT's own Codex usage API, so it reports your <i>account</i>: the machine running Codex does not have to be this one. A third source alternates the two on one connection.</td>
+  </tr>
+  <tr>
+    <td width="230" align="center"><img src="docs/src-stocks.png" width="210" alt="Candlestick chart with moving averages, Bollinger bands, volume and RSI"></td>
+    <td><b>Stocks</b> — candlesticks with moving averages, Bollinger bands, volume and RSI, cycling through a ticker list you set in the panel. Yahoo symbols, so KOSPI and crypto work too (<code>005930.KS</code>, <code>BTC-USD</code>).</td>
+  </tr>
+  <tr>
+    <td width="230" align="center"><img src="docs/src-sectors.png" width="210" alt="S&amp;P sector heatmap"></td>
+    <td><b>S&amp;P sectors</b> — the eleven SPDR sector ETFs plus SPY as a heatmap, with market breadth in the header. One glance tells you whether it was a broad day or one sector carrying it.</td>
+  </tr>
+  <tr>
+    <td width="230" align="center"><img src="docs/src-furnace.png" width="210" alt="CPU load rendered as a furnace fire"></td>
+    <td><b>CPU furnace</b> — your machine's load as a fire that grows and whitens as it climbs. Useless, and the first thing anyone asks about.</td>
+  </tr>
+</table>
 
 Also: GIF slideshows, video playback (needs `ffmpeg`), and the device's own local pages —
 clock and weather — which run on the ESP8266 itself.
