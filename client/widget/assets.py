@@ -32,8 +32,32 @@ RED = (255, 64, 96, 255)      # 0xFF4060  low heap
 DARK = (57, 67, 79, 255)      # a screen that isn't lit
 MUTED = (90, 100, 114, 255)   # 0x5A6472  dead LED
 
+# The device paints a red warning bar across its own top edge below this, and
+# that bar is invisible while a PC source is streaming — so the icon is the only
+# place the warning can still reach you. See DESIGN.md.
+LOW_HEAP = 6 * 1024
+
 SCREENS = {"online": CYAN, "streaming": AMBER}
 LEDS = {"online": GREEN, "streaming": AMBER, "low_heap": RED}
+
+# Every state the icon can show; "offline" is the fallback for both maps above.
+STATES = ("online", "streaming", "offline", "low_heap")
+
+def state_for(online, current=None, heap=None) -> str:
+    """Which icon state describes the device — the one place that decides.
+
+    Shared by the tray and the panel's favicon so the two can never disagree.
+    Low heap outranks "a source is streaming": one is a warning, the other is
+    just what it happens to be doing.
+    """
+    if not online:
+        return "offline"
+    if heap is not None and heap < LOW_HEAP:
+        return "low_heap"
+    if current:
+        return "streaming"
+    return "online"
+
 
 SS = 4  # supersample factor — ImageDraw has no antialiasing, so draw big and shrink
 

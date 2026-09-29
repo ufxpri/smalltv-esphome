@@ -39,6 +39,7 @@ import config as cfg_mod  # noqa: E402
 import logs  # noqa: E402
 import stream  # noqa: E402
 from smalltv_stream import TELEM_DIR as TELEM  # noqa: E402
+from widget import assets  # noqa: E402
 
 _ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 # The panel is the settings UI, so the saved config is the source of truth for
@@ -59,7 +60,8 @@ STATE = {"online": False, "current": None, "heap": None, "rssi": None, "uptime":
 LOCK = threading.Lock()
 
 PAGE = r"""<!doctype html><html><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1"><title>SmallTV 컨트롤</title><style>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>SmallTV 컨트롤</title>
+<link rel=icon href=/favicon.ico><style>
 *{box-sizing:border-box;font-family:-apple-system,system-ui,sans-serif}
 body{margin:0;background:#0f1013;color:#e7e2da;display:flex;justify-content:center}
 .wrap{width:min(460px,94vw);padding:22px}
@@ -400,11 +402,27 @@ async function loadlog(){
   if(stick)box.scrollTop=box.scrollHeight;
  }catch(e){$('logbox').textContent='로그를 읽지 못했습니다'}}
 
+// ---- tab icon ----
+// Mirrors the tray icon's states (widget/assets.py state_for), including the
+// low-heap warning the device can't show while a PC source is streaming. Only
+// touched when the state actually changes: rewriting the href every poll makes
+// some browsers refetch and flicker.
+let FAV='';
+function favicon(s){
+ let st = !s.online ? 'offline'
+        : (s.heap!=null && s.heap < 6144) ? 'low_heap'
+        : s.current ? 'streaming' : 'online';
+ if(st===FAV)return; FAV=st;
+ let l=document.querySelector('link[rel=icon]');
+ if(l)l.href='/favicon.ico?s='+st;
+}
+
 // ---- monitor ----
 function fmt(s){s=+s;if(!s)return '—';let h=s/3600|0,m=(s%3600)/60|0;return h?h+'h '+m+'m':m+'m '+(s%60|0)+'s'}
 async function tick(){try{let s=await(await fetch('/status')).json();
  $('status').innerHTML='<span style="color:'+(s.online?'#5fbf7f':'#bf6b6b')+'">●</span> '+(s.online?'online':'offline')+'  '+s.host;
  CUR=s.current;marksel();
+ favicon(s);
  heap.textContent=s.heap?((s.heap/1024).toFixed(1)+' KB'):'—';
  rssi.textContent=s.rssi!=null?(Math.round(s.rssi)+' dBm'):'—';
  uptime.textContent=fmt(s.uptime);
@@ -609,6 +627,31 @@ def thumb_png(name):
     return _thumbs[name]
 
 
+_favicons = {}
+
+
+def favicon_ico(state="online"):
+    """The tray glyph as a multi-size .ico — rendered here, never a shipped file.
+
+    Same drawing as the tray icon and the packaged app (widget/assets.py,
+    mirroring widget/icon.svg), so a browser tab can't end up wearing an older
+    logo than the menu bar. One per state, built on first request and kept —
+    there are four, and they are a few KB each.
+    """
+    if state not in _favicons:
+        buf = io.BytesIO()
+        frames = [assets.make_icon(size=n, state=state) for n in assets.ICO_SIZES]
+        frames[-1].save(buf, format="ICO", sizes=[(n, n) for n in assets.ICO_SIZES],
+                        append_images=frames[:-1])
+        _favicons[state] = buf.getvalue()
+    return _favicons[state]
+
+
+def favicon_state():
+    with LOCK:
+        return assets.state_for(STATE["online"], STATE["current"], STATE["heap"])
+
+
 def read_file(path):
     try:
         with open(path, "rb") as f:
@@ -731,6 +774,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/stickers":
             names = [os.path.basename(x) for x in sorted(glob.glob(os.path.join(GIFDIR, "*.gif")))]
             self._send(200, "application/json", json.dumps(names).encode())
+        elif p == "/favicon.ico":
+            # No `s` (the browser's own automatic request) answers with the live
+            # state, so the tab is right before any script has run.
+            want = self.q().get("s", [""])[0]
+            self._send(200, "image/x-icon",
+                       favicon_ico(want if want in assets.STATES else favicon_state()))
         elif p == "/thumb":
             try:
                 self._send(200, "image/png", thumb_png(self.q().get("name", [""])[0]))

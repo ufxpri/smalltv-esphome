@@ -26,9 +26,6 @@ from . import autostart
 from . import panel
 
 
-LOW_HEAP = 6 * 1024   # bytes; below this the device paints its own red warning bar
-
-
 class Manager:
     def __init__(self):
         self.cfg = cfg_mod.load()
@@ -110,16 +107,7 @@ class Manager:
     def _refresh_icon(self):
         if not self.icon:
             return
-        # LOW_HEAP is the device's own red-bar threshold (see DESIGN.md): under
-        # 6 KB it is at OOM risk, which outranks "a source is streaming".
-        if not self.online:
-            icon_state = "offline"
-        elif self.heap is not None and self.heap < LOW_HEAP:
-            icon_state = "low_heap"
-        elif self.current:
-            icon_state = "streaming"
-        else:
-            icon_state = "online"
+        icon_state = assets.state_for(self.online, self.current, self.heap)
         self.icon.icon = assets.make_icon(state=icon_state)
         if not self.up:
             state = "server stopped"
